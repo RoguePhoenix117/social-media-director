@@ -1,0 +1,34 @@
+# Node modules
+node_modules/
+jspm_packages/
+
+# Production
+dist/
+build/
+out/
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# OS files
+.DS_Store
+
+# Coverage
+coverage/
+
+# Misc
+.cache/
+.vscode/
+.idea/
+*.tgz
+*.pem
+*.iml

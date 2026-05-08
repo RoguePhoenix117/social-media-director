@@ -1,0 +1,47 @@
+{
+  "name": "social-media-director",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "intent:list": "intent list",
+    "intent:list:json": "intent list --json",
+    "intent:load:start": "intent load @tanstack/react-start#react-start",
+    "intent:load:server-functions": "intent load @tanstack/start-client-core#start-core/server-functions",
+    "intent:load:auth": "intent load @tanstack/start-client-core#start-core/auth-server-primitives"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-start": "latest",
+    "@vitejs/plugin-react": "latest",
+    "cheerio": "latest",
+    "lucide-react": "^1.14.0",
+    "pg": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@tanstack/intent": "^0.0.40",
+    "@types/node": "^25.6.1",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.2.4",
+    "typescript": "latest",
+    "vinxi": "latest",
+    "vite": "latest",
+    "vite-tsconfig-paths": "latest",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.2"
+}
