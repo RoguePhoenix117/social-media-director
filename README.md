@@ -14,6 +14,7 @@ Open-source, self-hosted social posting dashboard for turning public blog posts 
 
 ```bash
 pnpm install
+pnpm db:up
 pnpm dev
 ```
 
@@ -31,13 +32,31 @@ pnpm intent:load:server-functions
 
 ## Database
 
-Apply the SQL migrations in order:
+The local database runs in Docker Desktop with Postgres. Start it with:
 
 ```bash
-psql "$DATABASE_URL" -f migrations/0001_initial.sql
-psql "$DATABASE_URL" -f migrations/0002_onboarding.sql
-psql "$DATABASE_URL" -f migrations/0003_stepwise_onboarding.sql
+pnpm db:up
 ```
+
+The default `.env.example` connection string matches the Docker container:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/social_media_director
+```
+
+Migrations in `migrations/` are mounted into Postgres' Docker init directory and run
+automatically the first time the `postgres-data` volume is created. To rebuild the
+database from scratch and rerun all migrations:
+
+```bash
+pnpm db:reset
+```
+
+Use `pnpm db:logs` to watch Postgres startup and migration output, and `pnpm db:down`
+to stop the container while keeping the local database volume.
+
+This project uses the Postgres 18 Docker image, so the database volume is mounted
+at `/var/lib/postgresql` per the image's current storage layout.
 
 On first launch, the app shows a resumable onboarding wizard:
 

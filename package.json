@@ -9,6 +9,10 @@
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:reset": "docker compose down -v && docker compose up -d postgres",
     "intent:list": "intent list",
     "intent:list:json": "intent list --json",
     "intent:load:start": "intent load @tanstack/react-start#react-start",
@@ -16,6 +20,11 @@
     "intent:load:auth": "intent load @tanstack/start-client-core#start-core/auth-server-primitives"
   },
   "dependencies": {
+    "@tanstack/ai": "^0.15.0",
+    "@tanstack/ai-openai": "^0.8.3",
+    "@tanstack/react-form": "^1.29.1",
+    "@tanstack/react-query": "^5.100.9",
+    "@tanstack/react-query-devtools": "^5.100.9",
     "@tanstack/react-router": "latest",
     "@tanstack/react-start": "latest",
     "@vitejs/plugin-react": "latest",
@@ -24,11 +33,15 @@
     "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "simple-icons": "^16.19.0",
     "zod": "latest"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
+    "@tanstack/devtools-vite": "^0.6.0",
     "@tanstack/intent": "^0.0.40",
+    "@tanstack/react-devtools": "^0.10.2",
+    "@tanstack/react-router-devtools": "^1.166.13",
     "@types/node": "^25.6.1",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.2.14",
@@ -37,7 +50,6 @@
     "typescript": "latest",
     "vinxi": "latest",
     "vite": "latest",
-    "vite-tsconfig-paths": "latest",
     "vitest": "latest"
   },
   "engines": {

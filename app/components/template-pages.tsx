@@ -20,6 +20,7 @@ import {
 import { useState } from 'react'
 import { AppLayout } from './app-layout'
 import { useDesign, type ColorScheme, type LayoutVariant } from './design-context'
+import { PlatformIcon } from './platform-icons'
 
 const dashboardStats = [
   { label: 'Total Followers', value: '24.5K', change: '+12%', icon: Users, tone: 'blue' },
@@ -29,18 +30,32 @@ const dashboardStats = [
 ] as const
 
 const recentPosts = [
-  { platform: 'X', content: 'Just launched our new product narrative...', engagement: '2.4K', time: '2h ago' },
-  { platform: 'LinkedIn', content: 'A practical field note for operators...', engagement: '856', time: '5h ago' },
-  { platform: 'Instagram', content: 'Behind the scenes from the campaign room...', engagement: '3.1K', time: '1d ago' },
+  { platform: 'x', label: 'X', content: 'Just launched our new product narrative...', engagement: '2.4K', time: '2h ago' },
+  { platform: 'linkedin', label: 'LinkedIn', content: 'A practical field note for operators...', engagement: '856', time: '5h ago' },
+  { platform: 'instagram', label: 'Instagram', content: 'Behind the scenes from the campaign room...', engagement: '3.1K', time: '1d ago' },
 ]
 
+type PostPageSettings = {
+  xConfigured: boolean
+  linkedinConfigured: boolean
+}
+
+type GeneratedPostDrafts = {
+  masterPost: string
+  sourceTitle: string
+  variants: Array<{
+    provider: 'x' | 'linkedin'
+    text: string
+  }>
+}
+
 const platforms = [
-  { id: 'x', name: 'Twitter/X', icon: 'X', maxChars: 280, connected: true },
-  { id: 'linkedin', name: 'LinkedIn', icon: 'in', maxChars: 3000, connected: true },
-  { id: 'instagram', name: 'Instagram', icon: 'IG', maxChars: 2200, connected: false },
-  { id: 'facebook', name: 'Facebook', icon: 'f', maxChars: 63206, connected: true },
-  { id: 'threads', name: 'Threads', icon: '@', maxChars: 500, connected: false },
-  { id: 'tiktok', name: 'TikTok', icon: '♪', maxChars: 2200, connected: false },
+  { id: 'x', name: 'Twitter/X', maxChars: 280, setupHash: 'x-publishing' },
+  { id: 'linkedin', name: 'LinkedIn', maxChars: 3000, setupHash: 'linkedin-publishing' },
+  { id: 'instagram', name: 'Instagram', maxChars: 2200 },
+  { id: 'facebook', name: 'Facebook', maxChars: 63206 },
+  { id: 'threads', name: 'Threads', maxChars: 500 },
+  { id: 'tiktok', name: 'TikTok', maxChars: 2200 },
 ]
 
 const colorSchemes = [
@@ -110,7 +125,10 @@ export function TemplateDashboardPage() {
             <article className="activity-item" key={`${post.platform}-${post.time}`}>
               <div>
                 <div className="activity-meta">
-                  <span>{post.platform}</span>
+                  <span>
+                    <PlatformIcon platform={post.platform} size={14} />
+                    {post.label}
+                  </span>
                   <small>{post.time}</small>
                 </div>
                 <p>{post.content}</p>
@@ -142,13 +160,22 @@ export function TemplateDashboardPage() {
   )
 }
 
-export function TemplatePostPage() {
+export function TemplatePostPage({
+  settings,
+  onGenerate,
+}: Readonly<{
+  settings: PostPageSettings
+  onGenerate: (prompt: string) => Promise<GeneratedPostDrafts>
+}>) {
   const [masterPost, setMasterPost] = useState('')
   const [platformPosts, setPlatformPosts] = useState(
     Object.fromEntries(platforms.map((platform) => [platform.id, ''])),
   )
   const [linkedPlatforms, setLinkedPlatforms] = useState(new Set(platforms.map((platform) => platform.id)))
   const [aiPrompt, setAiPrompt] = useState('')
+  const [generationStatus, setGenerationStatus] = useState<string>()
+  const [generationError, setGenerationError] = useState<string>()
+  const [isGenerating, setIsGenerating] = useState(false)
 
   function handleMasterChange(value: string) {
     setMasterPost(value)
@@ -180,6 +207,45 @@ export function TemplatePostPage() {
     })
   }
 
+  async function handleGenerate() {
+    const prompt = aiPrompt.trim()
+    setGenerationError(undefined)
+
+    if (!prompt) {
+      setGenerationStatus(undefined)
+      setGenerationError('Enter a prompt or URL before generating.')
+      return
+    }
+
+    setIsGenerating(true)
+    setGenerationStatus('Generating platform drafts from your prompt...')
+
+    try {
+      const result = await onGenerate(prompt)
+      const generatedPosts = Object.fromEntries(
+        result.variants.map((variant) => [variant.provider, variant.text]),
+      )
+      setMasterPost(result.masterPost)
+      setPlatformPosts((current) => ({
+        ...current,
+        ...generatedPosts,
+      }))
+      setLinkedPlatforms((current) => {
+        const next = new Set(current)
+        for (const variant of result.variants) {
+          next.delete(variant.provider)
+        }
+        return next
+      })
+      setGenerationStatus(`Generated ${result.variants.length} drafts from ${result.sourceTitle}.`)
+    } catch (caught) {
+      setGenerationStatus(undefined)
+      setGenerationError(caught instanceof Error ? caught.message : 'Generation failed.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
   return (
     <AppLayout>
       <TemplatePageHeader
@@ -198,13 +264,29 @@ export function TemplatePostPage() {
         </div>
         <div className="assistant-row">
           <input
-            onChange={(event) => setAiPrompt(event.target.value)}
+            aria-describedby={generationStatus || generationError ? 'post-generation-status' : undefined}
+            onChange={(event) => {
+              setGenerationError(undefined)
+              setAiPrompt(event.target.value)
+            }}
             placeholder="Enter a prompt or paste a blog post URL..."
             type="text"
             value={aiPrompt}
           />
-          <button type="button">Generate</button>
+          <button disabled={isGenerating} onClick={() => void handleGenerate()} type="button">
+            {isGenerating ? 'Generating...' : 'Generate'}
+          </button>
         </div>
+        {generationStatus ? (
+          <p className="generation-status" id="post-generation-status" role="status">
+            {generationStatus}
+          </p>
+        ) : null}
+        {generationError ? (
+          <p className="error" id="post-generation-status" role="alert">
+            {generationError}
+          </p>
+        ) : null}
       </section>
 
       <section className="template-card">
@@ -233,13 +315,21 @@ export function TemplatePostPage() {
             const isLinked = linkedPlatforms.has(platform.id)
             const text = platformPosts[platform.id] ?? ''
             const overLimit = text.length > platform.maxChars
+            const isConnected =
+              platform.id === 'x'
+                ? settings.xConfigured
+                : platform.id === 'linkedin'
+                  ? settings.linkedinConfigured
+                  : false
             return (
               <article className={isLinked ? 'template-card platform-card linked' : 'template-card platform-card'} key={platform.id}>
                 <div className="platform-card-header">
-                  <div className="platform-mark">{platform.icon}</div>
+                  <div className="platform-mark">
+                    <PlatformIcon platform={platform.id} size={20} />
+                  </div>
                   <div>
                     <h3>{platform.name}</h3>
-                    <p>{platform.connected ? 'Connected' : 'Not connected'}</p>
+                    <p>{isConnected ? 'Connected' : platform.setupHash ? 'Needs setup' : 'Unavailable'}</p>
                   </div>
                   <button
                     aria-label={isLinked ? `Unlink ${platform.name}` : `Link ${platform.name}`}
@@ -266,9 +356,20 @@ export function TemplatePostPage() {
                     {text.length} / {platform.maxChars}
                   </span>
                 </div>
-                <button disabled={!platform.connected} type="button">
-                  {platform.connected ? 'Post Now' : 'Copy to Clipboard'}
-                </button>
+                {isConnected ? (
+                  <button disabled={overLimit || !text.trim()} type="button">
+                    Post Now
+                  </button>
+                ) : platform.setupHash ? (
+                  <Link className="setup-post-button" hash={platform.setupHash} to="/settings">
+                    <Send aria-hidden="true" size={17} />
+                    Setup to Post
+                  </Link>
+                ) : (
+                  <button disabled type="button">
+                    Unavailable
+                  </button>
+                )}
               </article>
             )
           })}

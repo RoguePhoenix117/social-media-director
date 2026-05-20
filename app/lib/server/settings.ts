@@ -2,8 +2,10 @@ import { getDb } from '../db/client'
 import { decryptSecret, encryptSecret } from './crypto'
 
 export type AppSettings = {
+  aiProvider?: string
   openaiApiKey?: string
   openaiModel?: string
+  codexCliModel?: string
   xAccessToken?: string
   linkedinAccessToken?: string
   linkedinAuthorUrn?: string
@@ -12,15 +14,20 @@ export type AppSettings = {
 
 export type PublicSettingsStatus = {
   modelConfigured: boolean
+  aiProvider?: string
+  codexCliEnabled: boolean
   xConfigured: boolean
   linkedinConfigured: boolean
   openaiModel?: string
+  codexCliModel?: string
   linkedinApiVersion?: string
 }
 
 const settingKeys = [
+  'aiProvider',
   'openaiApiKey',
   'openaiModel',
+  'codexCliModel',
   'xAccessToken',
   'linkedinAccessToken',
   'linkedinAuthorUrn',
@@ -43,11 +50,15 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 export async function getPublicSettingsStatus(): Promise<PublicSettingsStatus> {
   const settings = await getAppSettings()
+  const aiProvider = settings.aiProvider ?? 'openaiApiKey'
   return {
-    modelConfigured: Boolean(settings.openaiApiKey),
+    modelConfigured: aiProvider === 'codexCli' || Boolean(settings.openaiApiKey),
+    aiProvider,
+    codexCliEnabled: aiProvider === 'codexCli',
     xConfigured: Boolean(settings.xAccessToken),
     linkedinConfigured: Boolean(settings.linkedinAccessToken && settings.linkedinAuthorUrn),
     openaiModel: settings.openaiModel,
+    codexCliModel: settings.codexCliModel,
     linkedinApiVersion: settings.linkedinApiVersion,
   }
 }

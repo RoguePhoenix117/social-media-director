@@ -1,26 +1,39 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
+import type { ErrorComponentProps } from '@tanstack/react-router'
+import { useForm } from '@tanstack/react-form'
+import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createServerFn, useServerFn } from '@tanstack/react-start'
 import {
+  BookOpen,
   Bot,
   CheckCircle2,
   CircleAlert,
+  ExternalLink,
   FileText,
   KeyRound,
   Link2,
+  ListChecks,
   PenLine,
   Send,
+  ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
+  X as XIcon,
 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
 import { z } from 'zod'
 import { AppLayout } from '../components/app-layout'
+import { PlatformIcon } from '../components/platform-icons'
 import { generateProviderVariants } from '../lib/ai/generate-variants'
+import { bootstrapQueryKey } from '../lib/bootstrap-query'
 import { getDb } from '../lib/db/client'
+import { isDatabaseConnectionError } from '../lib/db/errors'
 import type { ProviderVariant } from '../lib/domain/providers'
 import { validateProviderPayload } from '../lib/domain/validation'
 import { importPublicBlogUrl } from '../lib/import/public-url'
 import { getProviderAdapter } from '../lib/providers'
 import { hashPassword, verifyPassword } from '../lib/server/crypto'
+import { logError, logInfo } from '../lib/server/logger'
 import {
   createOperatorSession,
   destroyCurrentSession,
@@ -38,21 +51,39 @@ const importInputSchema = z.object({
   url: z.string().url(),
   intentPrompt: z.string().optional(),
 })
+const importFormSchema = importInputSchema.extend({
+  intentPrompt: z.string(),
+})
 
 const loginInputSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email('Enter the email for your operator account.'),
+  password: z.string().min(1, 'Enter your password.'),
 })
 
 const accountStepInputSchema = z.object({
-  firstName: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(12),
+  email: z.string().email('Enter a valid email address.'),
+  password: z
+    .string()
+    .min(12, 'Use at least 12 characters.')
+    .regex(/[A-Za-z]/, 'Include at least one letter.')
+    .regex(/[0-9]/, 'Include at least one number.'),
+  firstName: z.string().optional(),
+})
+const accountStepFormSchema = accountStepInputSchema.extend({
+  firstName: z.string(),
 })
 
 const modelStepInputSchema = z.object({
+  aiProvider: z.enum(['openaiApiKey', 'codexCli']).optional(),
   openaiApiKey: z.string().optional(),
   openaiModel: z.string().min(1).default('gpt-4.1-mini'),
+  codexCliModel: z.string().optional(),
+})
+const modelStepFormSchema = modelStepInputSchema.extend({
+  aiProvider: z.enum(['openaiApiKey', 'codexCli']),
+  openaiApiKey: z.string(),
+  openaiModel: z.string().min(1),
+  codexCliModel: z.string(),
 })
 
 const socialStepInputSchema = z.object({
@@ -61,14 +92,32 @@ const socialStepInputSchema = z.object({
   linkedinAuthorUrn: z.string().optional(),
   linkedinApiVersion: z.string().optional(),
 })
+const socialStepFormSchema = z.object({
+  xAccessToken: z.string(),
+  linkedinAccessToken: z.string(),
+  linkedinAuthorUrn: z.string(),
+  linkedinApiVersion: z.string(),
+})
 
 const settingsInputSchema = z.object({
+  aiProvider: z.enum(['openaiApiKey', 'codexCli']).optional(),
   openaiApiKey: z.string().optional(),
   openaiModel: z.string().optional(),
+  codexCliModel: z.string().optional(),
   xAccessToken: z.string().optional(),
   linkedinAccessToken: z.string().optional(),
   linkedinAuthorUrn: z.string().optional(),
   linkedinApiVersion: z.string().optional(),
+})
+const settingsFormSchema = z.object({
+  aiProvider: z.enum(['openaiApiKey', 'codexCli']),
+  openaiApiKey: z.string(),
+  openaiModel: z.string(),
+  codexCliModel: z.string(),
+  xAccessToken: z.string(),
+  linkedinAccessToken: z.string(),
+  linkedinAuthorUrn: z.string(),
+  linkedinApiVersion: z.string(),
 })
 
 const publishInputSchema = z.object({
@@ -79,14 +128,34 @@ const publishInputSchema = z.object({
 })
 
 const getBootstrapState = createServerFn({ method: 'GET' }).handler(async () => {
-  const operatorCount = await getDb().query<{ count: string }>(
-    'select count(*)::text as count from operators',
-  )
+  let operatorCount
+
+  try {
+    operatorCount = await getDb().query<{ count: string }>(
+      'select count(*)::text as count from operators',
+    )
+  } catch (caught) {
+    if (caught instanceof Error && isDatabaseConnectionError(caught)) {
+      return {
+        databaseAvailable: false,
+        hasOperator: false,
+        isAuthenticated: false,
+        operatorEmail: undefined,
+        operatorFirstName: undefined,
+        onboardingStepCompleted: 0,
+        settings: null,
+      }
+    }
+
+    throw caught
+  }
+
   const hasOperator = Number(operatorCount.rows[0]?.count ?? '0') > 0
   const session = hasOperator ? await readOperatorSession() : null
   const settings = hasOperator && session ? await getPublicSettingsStatus() : null
 
   return {
+    databaseAvailable: true,
     hasOperator,
     isAuthenticated: Boolean(session),
     operatorEmail: session?.email,
@@ -95,6 +164,14 @@ const getBootstrapState = createServerFn({ method: 'GET' }).handler(async () => 
     settings,
   }
 })
+
+function bootstrapQueryOptions() {
+  return queryOptions({
+    queryKey: bootstrapQueryKey,
+    queryFn: () => getBootstrapState(),
+    staleTime: 30_000,
+  })
+}
 
 const saveAccountStep = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => accountStepInputSchema.parse(input))
@@ -112,7 +189,7 @@ const saveAccountStep = createServerFn({ method: 'POST' })
         (email, first_name, password_hash, onboarding_step_completed)
        values ($1, $2, $3, 1)
        returning id`,
-      [data.email.toLowerCase(), data.firstName.trim(), passwordHash],
+      [data.email.toLowerCase(), data.firstName?.trim() || null, passwordHash],
     )
 
     await createOperatorSession(operator.rows[0]!.id)
@@ -127,8 +204,10 @@ const saveModelStep = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const session = await requireOperatorSession()
     await saveAppSettings({
+      aiProvider: data.aiProvider ?? 'openaiApiKey',
       openaiApiKey: data.openaiApiKey,
       openaiModel: data.openaiModel,
+      codexCliModel: data.codexCliModel,
     })
     await getDb().query(
       `update operators
@@ -203,26 +282,54 @@ const saveSettings = createServerFn({ method: 'POST' })
 const importAndGenerate = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => importInputSchema.parse(input))
   .handler(async ({ data }) => {
-    await requireOperatorSession()
-    const settings = await getAppSettings()
-    const source = await importPublicBlogUrl(data.url)
-    const variants = await generateProviderVariants(
-      {
-        source,
-        intentPrompt: data.intentPrompt,
-      },
-      {
-        openaiApiKey: settings.openaiApiKey,
+    const startedAt = Date.now()
+    try {
+      await requireOperatorSession()
+      logInfo('import_generate.start', {
+        url: data.url,
+        hasIntentPrompt: Boolean(data.intentPrompt?.trim()),
+      })
+      const settings = await getAppSettings()
+      logInfo('import_generate.settings_loaded', {
+        aiProvider: settings.aiProvider ?? 'openaiApiKey',
+        hasOpenAiKey: Boolean(settings.openaiApiKey),
         openaiModel: settings.openaiModel,
-      },
-    )
+        codexCliModel: settings.codexCliModel,
+      })
+      const source = await importPublicBlogUrl(data.url)
+      logInfo('import_generate.source_imported', {
+        canonicalUrl: source.canonicalUrl,
+        hasImage: Boolean(source.imageUrl),
+      })
+      const variants = await generateProviderVariants(
+        {
+          source,
+          intentPrompt: data.intentPrompt,
+        },
+        {
+          aiProvider: settings.aiProvider,
+          openaiApiKey: settings.openaiApiKey,
+          openaiModel: settings.openaiModel,
+          codexCliModel: settings.codexCliModel,
+        },
+      )
+      logInfo('import_generate.success', {
+        durationMs: Date.now() - startedAt,
+        variantCount: variants.length,
+      })
 
-    return {
-      source,
-      variants: variants.map((variant) => ({
-        ...variant,
-        validation: validateProviderPayload(variant.provider, variant),
-      })),
+      return {
+        source,
+        variants: variants.map((variant) => ({
+          ...variant,
+          validation: validateProviderPayload(variant.provider, variant),
+        })),
+      }
+    } catch (error) {
+      logError('import_generate.failure', error, {
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
     }
   })
 
@@ -253,18 +360,161 @@ const publishVariant = createServerFn({ method: 'POST' })
   })
 
 export const Route = createFileRoute('/')({
-  loader: () => getBootstrapState(),
+  loader: ({ context }) => context.queryClient.ensureQueryData(bootstrapQueryOptions()),
   component: Dashboard,
+  errorComponent: DashboardError,
 })
 
+type BootstrapState = Awaited<ReturnType<typeof getBootstrapState>>
 type ImportResult = Awaited<ReturnType<typeof importAndGenerate>>
+
+const linkedinGuideSteps = [
+  {
+    title: 'Pick: personal profile or company Page',
+    summary:
+      'Start by deciding where posts should appear. A personal profile is the easiest path. A company Page usually needs extra LinkedIn product approval and the signed-in LinkedIn member must be an admin of that Page.',
+    checklist: [
+      'Individual creator: choose personal profile posting and plan to use an author URN like urn:li:person:abc123.',
+      'Company operator: choose company Page posting and confirm your LinkedIn account manages that Page.',
+      'If you only need to post to your own profile, you usually only need the Share on LinkedIn product and w_member_social permission.',
+    ],
+    links: [
+      ['LinkedIn API access overview', 'https://learn.microsoft.com/linkedin/shared/authentication/getting-access?context=linkedin%2Fcontext'],
+      ['Share on LinkedIn product', 'https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin'],
+    ],
+  },
+  {
+    title: 'Create the LinkedIn app',
+    summary:
+      'Open LinkedIn Developers, create an app, and fill in the required app details. Treat this like registering this dashboard as a tool that is allowed to ask LinkedIn for posting permission.',
+    checklist: [
+      'Go to the LinkedIn Developer Portal and create a new app from My Apps.',
+      'Enter an app name, connect it to your LinkedIn Page if LinkedIn asks, and add a logo/privacy policy if required.',
+      'After the app exists, open its Products tab. This is where you request the features your app is allowed to use.',
+    ],
+    links: [
+      ['LinkedIn Developer Portal', 'https://www.linkedin.com/developers/apps'],
+      ['Getting access to LinkedIn APIs', 'https://learn.microsoft.com/linkedin/shared/authentication/getting-access?context=linkedin%2Fcontext'],
+    ],
+  },
+  {
+    title: 'Add the right products and permissions',
+    summary:
+      'For personal profile posting, add Share on LinkedIn. For company Page posting or marketing/community management workflows, you may need to apply for Marketing API access and wait for approval.',
+    checklist: [
+      'Personal profile posts: add Share on LinkedIn and request w_member_social during OAuth.',
+      'Sign-in/profile lookup: add Sign in with LinkedIn using OpenID Connect and request openid, profile, and/or email.',
+      'Company Page posts: review Marketing/Community Management access. Some organization permissions require approval.',
+    ],
+    links: [
+      ['OpenID Connect sign-in', 'https://learn.microsoft.com/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2?context=linkedin%2Fconsumer%2Fcontext'],
+      ['Marketing API program', 'https://learn.microsoft.com/en-us/linkedin/marketing/?view=li-lms-2026-04'],
+    ],
+  },
+  {
+    title: 'Create the token and paste values here',
+    summary:
+      'LinkedIn access tokens come from OAuth. The LinkedIn member signs in, approves the requested permissions, and your app receives a token. This dashboard stores that token encrypted in your local database.',
+    checklist: [
+      'Paste the access token into LinkedIn access token.',
+      'Paste urn:li:person:... for individual posting or urn:li:organization:... for company posting into LinkedIn author URN.',
+      'Leave API version at 202604 unless LinkedIn tells you to use a newer REST API version.',
+    ],
+    links: [
+      ['LinkedIn OAuth 2.0 authentication', 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication'],
+      ['LinkedIn API versioning', 'https://learn.microsoft.com/en-us/linkedin/marketing/versioning?view=li-lms-2026-04'],
+    ],
+  },
+] as const
+
+function DashboardError({ error }: ErrorComponentProps) {
+  const router = useRouter()
+
+  if (isDatabaseConnectionError(error)) {
+    return <DatabaseSetupScreen onRetry={() => void router.invalidate()} />
+  }
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <p className="eyebrow">Dashboard error</p>
+        <h1>Dashboard could not load</h1>
+        <p className="setup-copy">{error.message}</p>
+        <button onClick={() => void router.invalidate()} type="button">
+          Retry
+        </button>
+      </section>
+    </main>
+  )
+}
+
+function DatabaseSetupScreen({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <p className="eyebrow">Database setup</p>
+        <h1>Postgres is not reachable</h1>
+        <p className="setup-copy">
+          The app tried to connect to Postgres while loading the dashboard, but the
+          database refused the connection. Start Postgres, check DATABASE_URL in
+          your .env file, then apply the migrations from the README.
+        </p>
+        <div className="setup-commands" aria-label="Database setup commands">
+          <code>psql "$DATABASE_URL" -f migrations/0001_initial.sql</code>
+          <code>psql "$DATABASE_URL" -f migrations/0002_onboarding.sql</code>
+          <code>psql "$DATABASE_URL" -f migrations/0003_stepwise_onboarding.sql</code>
+        </div>
+        <button onClick={onRetry} type="button">
+          Retry connection
+        </button>
+      </section>
+    </main>
+  )
+}
 
 function getProviderLabel(provider: ProviderVariant['provider']) {
   return provider === 'x' ? 'X' : 'LinkedIn'
 }
 
+function aiModelStatusValue(settings: PublicSettingsStatus | null) {
+  if (!settings?.modelConfigured) return 'Missing'
+
+  if (settings.aiProvider === 'codexCli') {
+    return `Ready: Codex CLI / ${settings.codexCliModel ?? 'gpt-5.2'}`
+  }
+
+  return `Ready: OpenAI API / ${settings.openaiModel ?? 'gpt-4.1-mini'}`
+}
+
+function FieldErrors({ errors }: Readonly<{ errors: Array<unknown> }>) {
+  if (!errors.length) return null
+
+  return (
+    <ul className="field-errors">
+      {errors.map((error, index) => (
+        <li key={index}>{formatFieldError(error)}</li>
+      ))}
+    </ul>
+  )
+}
+
+function formatFieldError(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = error.message
+    if (typeof message === 'string') return message
+  }
+  return 'Invalid value.'
+}
+
 function Dashboard() {
   const bootstrap = Route.useLoaderData()
+  const queryClient = useQueryClient()
+  const { data: authState, refetch: refetchBootstrap } = useQuery({
+    ...bootstrapQueryOptions(),
+    initialData: bootstrap,
+  })
   const importAndGenerateFn = useServerFn(importAndGenerate)
   const publishVariantFn = useServerFn(publishVariant)
   const saveAccountStepFn = useServerFn(saveAccountStep)
@@ -274,14 +524,61 @@ function Dashboard() {
   const logoutOperatorFn = useServerFn(logoutOperator)
   const saveSettingsFn = useServerFn(saveSettings)
 
-  const [authState, setAuthState] = useState(() => bootstrap)
-  const [url, setUrl] = useState('')
-  const [intentPrompt, setIntentPrompt] = useState('')
   const [result, setResult] = useState<ImportResult | undefined>()
   const [variants, setVariants] = useState<ProviderVariant[]>([])
   const [error, setError] = useState<string | undefined>()
   const [isLoading, setIsLoading] = useState(false)
+  const [generationStatus, setGenerationStatus] = useState<string>()
   const [publishState, setPublishState] = useState<Record<string, string>>({})
+  function updateBootstrapState(nextState: BootstrapState | ((current: BootstrapState) => BootstrapState)) {
+    queryClient.setQueryData<BootstrapState>(bootstrapQueryKey, (current) => {
+      const existing = current ?? authState
+      return typeof nextState === 'function' ? nextState(existing) : nextState
+    })
+  }
+
+  const displayName = authState.operatorFirstName
+    ? authState.operatorFirstName
+    : authState.operatorEmail ?? 'Signed in'
+  const importForm = useForm({
+    defaultValues: {
+      url: '',
+      intentPrompt: '',
+    },
+    validators: {
+      onChange: importFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setIsLoading(true)
+      setError(undefined)
+      setGenerationStatus('Importing the source URL...')
+
+      try {
+        const providerLabel = authState.settings?.aiProvider === 'codexCli'
+          ? 'Codex CLI'
+          : authState.settings?.modelConfigured
+            ? 'OpenAI API'
+            : 'fallback templates'
+        setGenerationStatus(`Generating drafts with ${providerLabel}. This can take a minute.`)
+        const nextResult = await importAndGenerateFn({
+          data: { url: value.url, intentPrompt: value.intentPrompt || undefined },
+        })
+        setResult(nextResult)
+        setVariants(nextResult.variants)
+        setGenerationStatus(`Generated ${nextResult.variants.length} platform drafts.`)
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : 'Import failed.'
+        setError(message)
+        setGenerationStatus(`Generation failed: ${message}`)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+  })
+
+  if (!authState.databaseAvailable) {
+    return <DatabaseSetupScreen onRetry={() => void refetchBootstrap()} />
+  }
 
   if (!authState.hasOperator) {
     return (
@@ -291,30 +588,37 @@ function Dashboard() {
         settings={null}
         onAccountSave={async (data) => {
           const result = await saveAccountStepFn({ data })
-          setAuthState({
+          updateBootstrapState({
+            databaseAvailable: true,
             hasOperator: true,
             isAuthenticated: true,
             operatorEmail: data.email.toLowerCase(),
-            operatorFirstName: data.firstName,
+            operatorFirstName: data.firstName ? data.firstName : null,
             onboardingStepCompleted: result.onboardingStepCompleted,
             settings: result.settings,
           })
         }}
         onModelSave={async (data) => {
           const result = await saveModelStepFn({ data })
-          setAuthState((current) => ({
-            ...current,
-            onboardingStepCompleted: result.onboardingStepCompleted,
-            settings: result.settings,
-          }))
+          updateBootstrapState((current) => {
+            if (!current.databaseAvailable) return current
+            return {
+              ...current,
+              onboardingStepCompleted: result.onboardingStepCompleted,
+              settings: result.settings,
+            }
+          })
         }}
         onSocialSave={async (data) => {
           const result = await saveSocialStepFn({ data })
-          setAuthState((current) => ({
-            ...current,
-            onboardingStepCompleted: result.onboardingStepCompleted,
-            settings: result.settings,
-          }))
+          updateBootstrapState((current) => {
+            if (!current.databaseAvailable) return current
+            return {
+              ...current,
+              onboardingStepCompleted: result.onboardingStepCompleted,
+              settings: result.settings,
+            }
+          })
         }}
       />
     )
@@ -325,7 +629,8 @@ function Dashboard() {
       <LoginScreen
         onSubmit={async (data) => {
           const result = await loginOperatorFn({ data })
-          setAuthState({
+          updateBootstrapState({
+            databaseAvailable: true,
             hasOperator: true,
             isAuthenticated: true,
             operatorEmail: data.email.toLowerCase(),
@@ -336,24 +641,6 @@ function Dashboard() {
         }}
       />
     )
-  }
-
-  async function onImport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsLoading(true)
-    setError(undefined)
-
-    try {
-      const nextResult = await importAndGenerateFn({
-        data: { url, intentPrompt: intentPrompt || undefined },
-      })
-      setResult(nextResult)
-      setVariants(nextResult.variants)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Import failed.')
-    } finally {
-      setIsLoading(false)
-    }
   }
 
   async function onPublish(variant: ProviderVariant) {
@@ -387,7 +674,8 @@ function Dashboard() {
 
   async function onLogout() {
     await logoutOperatorFn()
-    setAuthState({
+    updateBootstrapState({
+      databaseAvailable: true,
       hasOperator: true,
       isAuthenticated: false,
       operatorEmail: undefined,
@@ -400,9 +688,14 @@ function Dashboard() {
   const statusCards = [
     {
       label: 'AI model',
-      value: authState.settings?.modelConfigured ? 'Ready' : 'Missing',
+      value: aiModelStatusValue(authState.settings),
       isReady: Boolean(authState.settings?.modelConfigured),
       icon: Bot,
+      action: {
+        label: 'AI settings',
+        to: '/settings',
+        hash: 'ai-workspace',
+      },
     },
     {
       label: 'X publishing',
@@ -427,12 +720,12 @@ function Dashboard() {
   return (
     <AppLayout
       onLogout={() => void onLogout()}
-      operatorName={authState.operatorFirstName ?? authState.operatorEmail ?? 'Signed in'}
+      operatorName={authState.operatorFirstName ? authState.operatorFirstName : authState.operatorEmail ?? 'Signed in'}
     >
         <header className="topbar">
           <div>
             <p className="eyebrow">MVP V1</p>
-            <h1>Social Media Director</h1>
+            <h1>Welcome to your Dashboard, {displayName}</h1>
             <p className="page-summary">
               Import a public post, shape it with AI, and publish channel-ready drafts from
               one self-hosted dashboard.
@@ -445,17 +738,34 @@ function Dashboard() {
         </header>
 
         <section className="stats-grid" aria-label="Integration status">
-          {statusCards.map((card) => (
-            <article className="stat-card" key={card.label}>
-              <div className={card.isReady ? 'stat-icon ready' : 'stat-icon'}>
-                <card.icon aria-hidden="true" size={22} />
-              </div>
-              <div>
-                <p>{card.label}</p>
-                <strong>{card.value}</strong>
-              </div>
-            </article>
-          ))}
+          {statusCards.map((card) => {
+            const action = 'action' in card ? card.action : undefined
+
+            return (
+              <article className="stat-card" key={card.label}>
+                <div className={card.isReady ? 'stat-icon ready' : 'stat-icon'}>
+                  <card.icon aria-hidden="true" size={22} />
+                </div>
+                <div>
+                  <p>{card.label}</p>
+                  <strong className={card.isReady ? 'status-value ready' : 'status-value'}>
+                    {card.value}
+                  </strong>
+                </div>
+                {action ? (
+                  <Link
+                    aria-label="Open AI model settings"
+                    className="stat-card-action"
+                    hash={action.hash}
+                    to={action.to}
+                  >
+                    <SlidersHorizontal aria-hidden="true" size={16} />
+                    <span>{action.label}</span>
+                  </Link>
+                ) : null}
+              </article>
+            )
+          })}
         </section>
 
       {authState.onboardingStepCompleted < 3 ? (
@@ -465,19 +775,25 @@ function Dashboard() {
           settings={authState.settings}
           onModelSave={async (data) => {
             const result = await saveModelStepFn({ data })
-            setAuthState((current) => ({
-              ...current,
-              onboardingStepCompleted: result.onboardingStepCompleted,
-              settings: result.settings,
-            }))
+            updateBootstrapState((current) => {
+              if (!current.databaseAvailable) return current
+              return {
+                ...current,
+                onboardingStepCompleted: result.onboardingStepCompleted,
+                settings: result.settings,
+              }
+            })
           }}
           onSocialSave={async (data) => {
             const result = await saveSocialStepFn({ data })
-            setAuthState((current) => ({
-              ...current,
-              onboardingStepCompleted: result.onboardingStepCompleted,
-              settings: result.settings,
-            }))
+            updateBootstrapState((current) => {
+              if (!current.databaseAvailable) return current
+              return {
+                ...current,
+                onboardingStepCompleted: result.onboardingStepCompleted,
+                settings: result.settings,
+              }
+            })
           }}
         />
       ) : null}
@@ -486,12 +802,21 @@ function Dashboard() {
         settings={authState.settings}
         onSave={async (data) => {
           const settings = await saveSettingsFn({ data })
-          setAuthState((current) => ({ ...current, settings }))
+          updateBootstrapState((current) => {
+            if (!current.databaseAvailable) return current
+            return { ...current, settings }
+          })
         }}
       />
 
       <section className="workspace" id="workspace">
-        <form className="import-panel" onSubmit={onImport}>
+        <form
+          className="import-panel"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void importForm.handleSubmit()
+          }}
+        >
           <div className="panel-heading">
             <Sparkles aria-hidden="true" size={22} />
             <div>
@@ -499,28 +824,43 @@ function Dashboard() {
               <p>Paste a source URL and add direction for the generated drafts.</p>
             </div>
           </div>
-          <label>
-            Blog post URL
-            <input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://example.com/blog/product-update"
-              required
-              type="url"
-            />
-          </label>
-          <label>
-            Optional direction
-            <textarea
-              value={intentPrompt}
-              onChange={(event) => setIntentPrompt(event.target.value)}
-              placeholder="Emphasize the launch angle and invite readers to try it."
-              rows={4}
-            />
-          </label>
+          <importForm.Field name="url">
+            {(field) => (
+              <label>
+                Blog post URL
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="https://example.com/blog/product-update"
+                  required
+                  type="url"
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </importForm.Field>
+          <importForm.Field name="intentPrompt">
+            {(field) => (
+              <label>
+                Optional direction
+                <textarea
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Emphasize the launch angle and invite readers to try it."
+                  rows={4}
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </importForm.Field>
           <button disabled={isLoading} type="submit">
             {isLoading ? 'Generating...' : 'Import and generate'}
           </button>
+          {generationStatus ? <p className="generation-status">{generationStatus}</p> : null}
           {error ? <p className="error">{error}</p> : null}
         </form>
 
@@ -553,9 +893,14 @@ function Dashboard() {
           return (
             <article className="variant-card" key={variant.provider}>
               <div className="variant-header">
-                <div>
-                  <p className="eyebrow">Platform draft</p>
-                  <h2>{getProviderLabel(variant.provider)}</h2>
+                <div className="provider-title">
+                  <div className="platform-mark compact">
+                    <PlatformIcon platform={variant.provider} size={18} />
+                  </div>
+                  <div>
+                    <p className="eyebrow">Platform draft</p>
+                    <h2>{getProviderLabel(variant.provider)}</h2>
+                  </div>
                 </div>
                 <span className={validation.status}>
                   {validation.status === 'valid' ? (
@@ -620,23 +965,87 @@ function OnboardingWizard({
   onModelSave: (data: z.infer<typeof modelStepInputSchema>) => Promise<void>
   onSocialSave: (data: z.infer<typeof socialStepInputSchema>) => Promise<void>
 }) {
-  const [step, setStep] = useState(Math.min(onboardingStepCompleted + 1, 3))
+  const initialStep =
+    mode === 'first-run'
+      ? Math.min(onboardingStepCompleted + 1, 3)
+      : Math.max(2, Math.min(onboardingStepCompleted + 1, 3))
+  const [step, setStep] = useState(initialStep)
   const [error, setError] = useState<string>()
   const [message, setMessage] = useState<string>()
-  const [accountForm, setAccountForm] = useState({
-    firstName: '',
-    email: '',
-    password: '',
+  const accountForm = useForm({
+    defaultValues: {
+      email: '',
+      password: '',
+      firstName: '',
+    },
+    validators: {
+      onChange: accountStepFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setError(undefined)
+      setMessage(undefined)
+      try {
+        if (!onAccountSave) throw new Error('Account setup is already complete.')
+        await onAccountSave(value)
+        setMessage('Account saved. You can continue setup now or come back later.')
+        setStep(2)
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Account setup failed.')
+      }
+    },
   })
-  const [modelForm, setModelForm] = useState({
-    openaiApiKey: '',
-    openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
+  const modelForm = useForm({
+    defaultValues: {
+      aiProvider: settings?.aiProvider === 'codexCli' ? 'codexCli' : 'openaiApiKey',
+      openaiApiKey: '',
+      openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
+      codexCliModel: settings?.codexCliModel ?? 'gpt-5.2',
+    },
+    validators: {
+      onChange: modelStepFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setError(undefined)
+      setMessage(undefined)
+      try {
+        await onModelSave({
+          aiProvider: value.aiProvider as 'openaiApiKey' | 'codexCli',
+          openaiApiKey: value.openaiApiKey || undefined,
+          openaiModel: value.openaiModel,
+          codexCliModel: value.codexCliModel,
+        })
+        setMessage('Model settings saved. You can continue or come back later.')
+        setStep(3)
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Model setup failed.')
+      }
+    },
   })
-  const [socialForm, setSocialForm] = useState({
-    xAccessToken: '',
-    linkedinAccessToken: '',
-    linkedinAuthorUrn: '',
-    linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
+  const socialForm = useForm({
+    defaultValues: {
+      xAccessToken: '',
+      linkedinAccessToken: '',
+      linkedinAuthorUrn: '',
+      linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
+    },
+    validators: {
+      onChange: socialStepFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setError(undefined)
+      setMessage(undefined)
+      try {
+        await onSocialSave({
+          xAccessToken: value.xAccessToken || undefined,
+          linkedinAccessToken: value.linkedinAccessToken || undefined,
+          linkedinAuthorUrn: value.linkedinAuthorUrn || undefined,
+          linkedinApiVersion: value.linkedinApiVersion,
+        })
+        setMessage('Social integrations saved. Onboarding is complete.')
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Social setup failed.')
+      }
+    },
   })
 
   const shellClass = mode === 'first-run' ? 'auth-shell' : 'wizard-shell'
@@ -646,7 +1055,11 @@ function OnboardingWizard({
     setError(undefined)
     setMessage(undefined)
     try {
-      await onModelSave({ openaiModel: modelForm.openaiModel })
+      await onModelSave({
+        aiProvider: modelForm.state.values.aiProvider as 'openaiApiKey' | 'codexCli',
+        openaiModel: modelForm.state.values.openaiModel,
+        codexCliModel: modelForm.state.values.codexCliModel,
+      })
       setMessage('Model step skipped. You can add an API key later in settings.')
       setStep(3)
     } catch (caught) {
@@ -658,7 +1071,7 @@ function OnboardingWizard({
     setError(undefined)
     setMessage(undefined)
     try {
-      await onSocialSave({ linkedinApiVersion: socialForm.linkedinApiVersion })
+      await onSocialSave({ linkedinApiVersion: socialForm.state.values.linkedinApiVersion })
       setMessage('Social step skipped. Onboarding is complete.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Social setup failed.')
@@ -682,20 +1095,11 @@ function OnboardingWizard({
           </span>
         </div>
 
-        {step === 1 ? (
+        {step === 1 && mode === 'first-run' ? (
           <form
-            onSubmit={async (event) => {
+            onSubmit={(event) => {
               event.preventDefault()
-              setError(undefined)
-              setMessage(undefined)
-              try {
-                if (!onAccountSave) throw new Error('Account setup is already complete.')
-                await onAccountSave(accountForm)
-                setMessage('Account saved. You can continue setup now or come back later.')
-                setStep(2)
-              } catch (caught) {
-                setError(caught instanceof Error ? caught.message : 'Account setup failed.')
-              }
+              void accountForm.handleSubmit()
             }}
           >
             <p className="setup-copy">
@@ -703,39 +1107,58 @@ function OnboardingWizard({
               only for your dashboard and is separate from OpenAI, X, or LinkedIn.
             </p>
             <div className="form-grid">
-              <label>
-                First name
-                <input
-                  onChange={(event) =>
-                    setAccountForm({ ...accountForm, firstName: event.target.value })
-                  }
-                  required
-                  value={accountForm.firstName}
-                />
-              </label>
-              <label>
-                Operator email
-                <input
-                  onChange={(event) =>
-                    setAccountForm({ ...accountForm, email: event.target.value })
-                  }
-                  required
-                  type="email"
-                  value={accountForm.email}
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  minLength={12}
-                  onChange={(event) =>
-                    setAccountForm({ ...accountForm, password: event.target.value })
-                  }
-                  required
-                  type="password"
-                  value={accountForm.password}
-                />
-              </label>
+              <accountForm.Field name="email">
+                {(field) => (
+                  <label>
+                    Operator email
+                    <input
+                      autoComplete="username"
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder="you@example.com"
+                      required
+                      type="email"
+                      value={field.state.value}
+                    />
+                    <small className="field-guidance">Use the email you want for dashboard login and recovery context.</small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </accountForm.Field>
+              <accountForm.Field name="password">
+                {(field) => (
+                  <label>
+                    Password
+                    <input
+                      autoComplete="new-password"
+                      minLength={12}
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      required
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <small className="field-guidance">Use 12+ characters with at least one letter and one number.</small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </accountForm.Field>
+              <accountForm.Field name="firstName">
+                {(field) => (
+                  <label>
+                    First name <span className="optional-label">Optional</span>
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </accountForm.Field>
             </div>
             <button type="submit">Save account</button>
           </form>
@@ -743,20 +1166,9 @@ function OnboardingWizard({
 
         {step === 2 ? (
           <form
-            onSubmit={async (event) => {
+            onSubmit={(event) => {
               event.preventDefault()
-              setError(undefined)
-              setMessage(undefined)
-              try {
-                await onModelSave({
-                  openaiApiKey: modelForm.openaiApiKey || undefined,
-                  openaiModel: modelForm.openaiModel,
-                })
-                setMessage('Model settings saved. You can continue or come back later.')
-                setStep(3)
-              } catch (caught) {
-                setError(caught instanceof Error ? caught.message : 'Model setup failed.')
-              }
+              void modelForm.handleSubmit()
             }}
           >
             <p className="setup-copy">
@@ -767,26 +1179,75 @@ function OnboardingWizard({
               posts manually.
             </p>
             <div className="form-grid">
-              <label>
-                OpenAI API key
-                <input
-                  onChange={(event) =>
-                    setModelForm({ ...modelForm, openaiApiKey: event.target.value })
-                  }
-                  placeholder={settings?.modelConfigured ? 'Configured' : 'Optional'}
-                  type="password"
-                  value={modelForm.openaiApiKey}
-                />
-              </label>
-              <label>
-                Model
-                <input
-                  onChange={(event) =>
-                    setModelForm({ ...modelForm, openaiModel: event.target.value })
-                  }
-                  value={modelForm.openaiModel}
-                />
-              </label>
+              <modelForm.Field name="aiProvider">
+                {(field) => (
+                  <label>
+                    AI backend
+                    <select
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) =>
+                        field.handleChange(event.target.value as 'openaiApiKey' | 'codexCli')
+                      }
+                      value={field.state.value}
+                    >
+                      <option value="openaiApiKey">OpenAI API key</option>
+                      <option value="codexCli">Local Codex CLI</option>
+                    </select>
+                    <small className="field-guidance">
+                      Codex CLI mode uses your locally authenticated codex command.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </modelForm.Field>
+              <modelForm.Field name="openaiApiKey">
+                {(field) => (
+                  <label>
+                    OpenAI API key
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder={settings?.modelConfigured ? 'Configured' : 'Optional'}
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </modelForm.Field>
+              <modelForm.Field name="openaiModel">
+                {(field) => (
+                  <label>
+                    Model
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </modelForm.Field>
+              <modelForm.Field name="codexCliModel">
+                {(field) => (
+                  <label>
+                    Codex CLI model
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      value={field.state.value}
+                    />
+                    <small className="field-guidance">
+                      Used only when Local Codex CLI is selected.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </modelForm.Field>
             </div>
             <div className="button-row">
               <button type="submit">Save model step</button>
@@ -803,21 +1264,9 @@ function OnboardingWizard({
 
         {step === 3 ? (
           <form
-            onSubmit={async (event) => {
+            onSubmit={(event) => {
               event.preventDefault()
-              setError(undefined)
-              setMessage(undefined)
-              try {
-                await onSocialSave({
-                  xAccessToken: socialForm.xAccessToken || undefined,
-                  linkedinAccessToken: socialForm.linkedinAccessToken || undefined,
-                  linkedinAuthorUrn: socialForm.linkedinAuthorUrn || undefined,
-                  linkedinApiVersion: socialForm.linkedinApiVersion,
-                })
-                setMessage('Social integrations saved. Onboarding is complete.')
-              } catch (caught) {
-                setError(caught instanceof Error ? caught.message : 'Social setup failed.')
-              }
+              void socialForm.handleSubmit()
             }}
           >
             <p className="setup-copy">
@@ -828,48 +1277,69 @@ function OnboardingWizard({
               request the posting product/scopes you need, then use a member or
               organization author URN such as urn:li:person:... or urn:li:organization:....
             </p>
+            <LinkedInApiGuide />
             <div className="form-grid">
-              <label>
-                X access token
-                <input
-                  onChange={(event) =>
-                    setSocialForm({ ...socialForm, xAccessToken: event.target.value })
-                  }
-                  placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
-                  type="password"
-                  value={socialForm.xAccessToken}
-                />
-              </label>
-              <label>
-                LinkedIn access token
-                <input
-                  onChange={(event) =>
-                    setSocialForm({ ...socialForm, linkedinAccessToken: event.target.value })
-                  }
-                  placeholder={settings?.linkedinConfigured ? 'Configured' : 'Optional'}
-                  type="password"
-                  value={socialForm.linkedinAccessToken}
-                />
-              </label>
-              <label>
-                LinkedIn author URN
-                <input
-                  onChange={(event) =>
-                    setSocialForm({ ...socialForm, linkedinAuthorUrn: event.target.value })
-                  }
-                  placeholder="urn:li:person:..."
-                  value={socialForm.linkedinAuthorUrn}
-                />
-              </label>
-              <label>
-                LinkedIn API version
-                <input
-                  onChange={(event) =>
-                    setSocialForm({ ...socialForm, linkedinApiVersion: event.target.value })
-                  }
-                  value={socialForm.linkedinApiVersion}
-                />
-              </label>
+              <socialForm.Field name="xAccessToken">
+                {(field) => (
+                  <label>
+                    X access token
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </socialForm.Field>
+              <socialForm.Field name="linkedinAccessToken">
+                {(field) => (
+                  <label>
+                    LinkedIn access token
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder={settings?.linkedinConfigured ? 'Configured' : 'Optional'}
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </socialForm.Field>
+              <socialForm.Field name="linkedinAuthorUrn">
+                {(field) => (
+                  <label>
+                    LinkedIn author URN
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder="urn:li:person:..."
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </socialForm.Field>
+              <socialForm.Field name="linkedinApiVersion">
+                {(field) => (
+                  <label>
+                    LinkedIn API version
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </socialForm.Field>
             </div>
             <div className="button-row">
               <button type="submit">Save social step</button>
@@ -891,49 +1361,188 @@ function OnboardingWizard({
   )
 }
 
+function LinkedInApiGuide({ compact = false }: { compact?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [stepIndex, setStepIndex] = useState(0)
+  const step = linkedinGuideSteps[stepIndex]
+  const isLastStep = stepIndex === linkedinGuideSteps.length - 1
+
+  function openGuide() {
+    setStepIndex(0)
+    setIsOpen(true)
+  }
+
+  function closeGuide() {
+    setIsOpen(false)
+  }
+
+  return (
+    <>
+      {compact ? (
+        <button className="secondary-button" onClick={openGuide} type="button">
+          <BookOpen aria-hidden="true" size={17} />
+          LinkedIn guide
+        </button>
+      ) : (
+        <aside className="linkedin-guide-card">
+          <div className="panel-heading">
+            <ShieldCheck aria-hidden="true" size={22} />
+            <div>
+              <h2>LinkedIn API access guide</h2>
+              <p>
+                Walk through app products, OAuth scopes, access tokens, and author URNs
+                before saving credentials.
+              </p>
+            </div>
+          </div>
+          <div className="guide-actions">
+            <button onClick={openGuide} type="button">
+              <BookOpen aria-hidden="true" size={17} />
+              Start tutorial
+            </button>
+            <a
+              className="secondary-link"
+              href="https://learn.microsoft.com/en-us/linkedin/"
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink aria-hidden="true" size={16} />
+              Microsoft Learn
+            </a>
+          </div>
+        </aside>
+      )}
+
+      {isOpen ? (
+        <div aria-labelledby="linkedin-guide-title" aria-modal="true" className="modal-backdrop" role="dialog">
+          <section className="guide-modal">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">
+                  LinkedIn tutorial {stepIndex + 1} of {linkedinGuideSteps.length}
+                </p>
+                <h2 id="linkedin-guide-title">{step.title}</h2>
+              </div>
+              <button aria-label="Close LinkedIn tutorial" className="icon-button" onClick={closeGuide} type="button">
+                <XIcon aria-hidden="true" size={18} />
+              </button>
+            </div>
+            <p className="setup-copy">{step.summary}</p>
+            <ul className="guide-checklist">
+              {step.checklist.map((item) => (
+                <li key={item}>
+                  <ListChecks aria-hidden="true" size={17} />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <div className="guide-link-list">
+              {step.links.map(([label, href]) => (
+                <a href={href} key={href} rel="noreferrer" target="_blank">
+                  <ExternalLink aria-hidden="true" size={15} />
+                  {label}
+                </a>
+              ))}
+            </div>
+            <div className="guide-progress" aria-hidden="true">
+              {linkedinGuideSteps.map((guideStep, index) => (
+                <span className={index === stepIndex ? 'active' : ''} key={guideStep.title} />
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="secondary-button" onClick={closeGuide} type="button">
+                Skip Tutorial
+              </button>
+              <button
+                onClick={() => {
+                  if (isLastStep) {
+                    closeGuide()
+                    return
+                  }
+                  setStepIndex((current) => current + 1)
+                }}
+                type="button"
+              >
+                {isLastStep ? 'Finish' : 'next'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function LoginScreen({
   onSubmit,
 }: {
   onSubmit: (data: z.infer<typeof loginInputSchema>) => Promise<void>
 }) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState<string>()
+  const form = useForm({
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+    validators: {
+      onChange: loginInputSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setError(undefined)
+      try {
+        await onSubmit(value)
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Login failed.')
+      }
+    },
+  })
 
   return (
     <main className="auth-shell">
       <form
         className="auth-panel"
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault()
-          setError(undefined)
-          try {
-            await onSubmit({ email, password })
-          } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Login failed.')
-          }
+          void form.handleSubmit()
         }}
       >
         <p className="eyebrow">Operator login</p>
         <h1>Social Media Director</h1>
-        <label>
-          Email
-          <input
-            onChange={(event) => setEmail(event.target.value)}
-            required
-            type="email"
-            value={email}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
-        </label>
+        <form.Field name="email">
+          {(field) => (
+            <label>
+              Email
+              <input
+                autoComplete="username"
+                name={field.name}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+                required
+                type="email"
+                value={field.state.value}
+              />
+              <small className="field-guidance">Use the email you registered for this self-hosted dashboard.</small>
+              <FieldErrors errors={field.state.meta.errors} />
+            </label>
+          )}
+        </form.Field>
+        <form.Field name="password">
+          {(field) => (
+            <label>
+              Password
+              <input
+                autoComplete="current-password"
+                name={field.name}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+                required
+                type="password"
+                value={field.state.value}
+              />
+              <FieldErrors errors={field.state.meta.errors} />
+            </label>
+          )}
+        </form.Field>
         <button type="submit">Log in</button>
         {error ? <p className="error">{error}</p> : null}
       </form>
@@ -949,15 +1558,43 @@ function SettingsPanel({
   onSave: (data: z.infer<typeof settingsInputSchema>) => Promise<void>
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [form, setForm] = useState({
-    openaiApiKey: '',
-    openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
-    xAccessToken: '',
-    linkedinAccessToken: '',
-    linkedinAuthorUrn: '',
-    linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
-  })
   const [message, setMessage] = useState<string>()
+  const form = useForm({
+    defaultValues: {
+      aiProvider: settings?.aiProvider === 'codexCli' ? 'codexCli' : 'openaiApiKey',
+      openaiApiKey: '',
+      openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
+      codexCliModel: settings?.codexCliModel ?? 'gpt-5.2',
+      xAccessToken: '',
+      linkedinAccessToken: '',
+      linkedinAuthorUrn: '',
+      linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
+    },
+    validators: {
+      onChange: settingsFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setMessage(undefined)
+      try {
+        await onSave({
+          aiProvider: value.aiProvider as 'openaiApiKey' | 'codexCli',
+          openaiApiKey: value.openaiApiKey || undefined,
+          openaiModel: value.openaiModel,
+          codexCliModel: value.codexCliModel,
+          xAccessToken: value.xAccessToken || undefined,
+          linkedinAccessToken: value.linkedinAccessToken || undefined,
+          linkedinAuthorUrn: value.linkedinAuthorUrn || undefined,
+          linkedinApiVersion: value.linkedinApiVersion,
+        })
+        setMessage('Settings saved.')
+        form.setFieldValue('openaiApiKey', '')
+        form.setFieldValue('xAccessToken', '')
+        form.setFieldValue('linkedinAccessToken', '')
+      } catch (caught) {
+        setMessage(caught instanceof Error ? caught.message : 'Settings failed to save.')
+      }
+    },
+  })
 
   return (
     <section className="settings-panel" id="settings">
@@ -968,87 +1605,147 @@ function SettingsPanel({
           database.
         </p>
       </div>
-      <button className="secondary-button" onClick={() => setIsOpen(!isOpen)} type="button">
-        {isOpen ? 'Close settings' : 'Edit settings'}
-      </button>
+      <div className="settings-actions">
+        <LinkedInApiGuide compact />
+        <button className="secondary-button" onClick={() => setIsOpen(!isOpen)} type="button">
+          {isOpen ? 'Close settings' : 'Edit settings'}
+        </button>
+      </div>
       {isOpen ? (
         <form
           className="settings-form"
-          onSubmit={async (event) => {
+          onSubmit={(event) => {
             event.preventDefault()
-            setMessage(undefined)
-            try {
-              await onSave({
-                openaiApiKey: form.openaiApiKey || undefined,
-                openaiModel: form.openaiModel,
-                xAccessToken: form.xAccessToken || undefined,
-                linkedinAccessToken: form.linkedinAccessToken || undefined,
-                linkedinAuthorUrn: form.linkedinAuthorUrn || undefined,
-                linkedinApiVersion: form.linkedinApiVersion,
-              })
-              setMessage('Settings saved.')
-              setForm((current) => ({
-                ...current,
-                openaiApiKey: '',
-                xAccessToken: '',
-                linkedinAccessToken: '',
-              }))
-            } catch (caught) {
-              setMessage(caught instanceof Error ? caught.message : 'Settings failed to save.')
-            }
+            void form.handleSubmit()
           }}
         >
-          <label>
-            OpenAI API key
-            <input
-              onChange={(event) => setForm({ ...form, openaiApiKey: event.target.value })}
-              placeholder={settings?.modelConfigured ? 'Configured' : 'Required'}
-              type="password"
-              value={form.openaiApiKey}
-            />
-          </label>
-          <label>
-            Model
-            <input
-              onChange={(event) => setForm({ ...form, openaiModel: event.target.value })}
-              value={form.openaiModel}
-            />
-          </label>
-          <label>
-            X access token
-            <input
-              onChange={(event) => setForm({ ...form, xAccessToken: event.target.value })}
-              placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
-              type="password"
-              value={form.xAccessToken}
-            />
-          </label>
-          <label>
-            LinkedIn access token
-            <input
-              onChange={(event) =>
-                setForm({ ...form, linkedinAccessToken: event.target.value })
-              }
-              placeholder={settings?.linkedinConfigured ? 'Configured' : 'Optional'}
-              type="password"
-              value={form.linkedinAccessToken}
-            />
-          </label>
-          <label>
-            LinkedIn author URN
-            <input
-              onChange={(event) => setForm({ ...form, linkedinAuthorUrn: event.target.value })}
-              placeholder="urn:li:person:..."
-              value={form.linkedinAuthorUrn}
-            />
-          </label>
-          <label>
-            LinkedIn API version
-            <input
-              onChange={(event) => setForm({ ...form, linkedinApiVersion: event.target.value })}
-              value={form.linkedinApiVersion}
-            />
-          </label>
+          <form.Field name="openaiApiKey">
+            {(field) => (
+              <label>
+                OpenAI API key
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder={settings?.modelConfigured ? 'Configured' : 'Required'}
+                  type="password"
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="aiProvider">
+            {(field) => (
+              <label>
+                AI backend
+                <select
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) =>
+                    field.handleChange(event.target.value as 'openaiApiKey' | 'codexCli')
+                  }
+                  value={field.state.value}
+                >
+                  <option value="openaiApiKey">OpenAI API key</option>
+                  <option value="codexCli">Local Codex CLI</option>
+                </select>
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="openaiModel">
+            {(field) => (
+              <label>
+                Model
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="codexCliModel">
+            {(field) => (
+              <label>
+                Codex CLI model
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="xAccessToken">
+            {(field) => (
+              <label>
+                X access token
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
+                  type="password"
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="linkedinAccessToken">
+            {(field) => (
+              <label>
+                LinkedIn access token
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder={settings?.linkedinConfigured ? 'Configured' : 'Optional'}
+                  type="password"
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="linkedinAuthorUrn">
+            {(field) => (
+              <label>
+                LinkedIn author URN
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="urn:li:person:..."
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <form.Field name="linkedinApiVersion">
+            {(field) => (
+              <label>
+                LinkedIn API version
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  value={field.state.value}
+                />
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+          <div className="settings-form-guide">
+            <LinkedInApiGuide />
+          </div>
           <button type="submit">Save settings</button>
           {message ? <p className="publish-state">{message}</p> : null}
         </form>

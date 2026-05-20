@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { generateProviderVariants } from '../app/lib/ai/generate-variants'
+import {
+  generateProviderVariants,
+  generateSocialPosts,
+} from '../app/lib/ai/generate-variants'
 
 describe('generateProviderVariants', () => {
   it('generates reviewable X and LinkedIn fallback variants', async () => {
@@ -18,5 +21,28 @@ describe('generateProviderVariants', () => {
     expect(variants[0]?.text).toContain('https://example.com/blog/launch')
     expect(variants[0]?.text.length).toBeLessThanOrEqual(280)
     expect(variants[1]?.text).toContain('Read more:')
+  })
+
+  it('returns a master post and only requested platform variants', async () => {
+    const result = await generateSocialPosts(
+      {
+        source: {
+          sourceType: 'public_url',
+          sourceUrl: 'https://example.com/blog/launch',
+          canonicalUrl: 'https://example.com/blog/launch',
+          title: 'Launch notes',
+          description: 'A focused MVP for social media publishing.',
+        },
+        intentPrompt: 'Announce the launch.',
+      },
+      {
+        targetProviders: ['linkedin'],
+      },
+    )
+
+    expect(result.masterPost).toContain('Launch notes')
+    expect(result.variants).toHaveLength(1)
+    expect(result.variants[0]?.provider).toBe('linkedin')
+    expect(result.variants[0]?.text).toContain('Read more:')
   })
 })
