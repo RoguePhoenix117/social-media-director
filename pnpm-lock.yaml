@@ -24,34 +24,34 @@ importers:
         specifier: ^5.100.9
         version: 5.100.9(@tanstack/react-query@5.100.9(react@19.2.6))(react@19.2.6)
       '@tanstack/react-router':
-        specifier: latest
+        specifier: ^1.169.2
         version: 1.169.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-start':
-        specifier: latest
+        specifier: ^1.167.65
         version: 1.167.65(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.11(@types/node@25.6.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.47.1)(yaml@2.8.3))
       '@vitejs/plugin-react':
-        specifier: latest
+        specifier: ^6.0.1
         version: 6.0.1(vite@8.0.11(@types/node@25.6.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.47.1)(yaml@2.8.3))
       cheerio:
-        specifier: latest
+        specifier: ^1.2.0
         version: 1.2.0
       lucide-react:
         specifier: ^1.14.0
         version: 1.14.0(react@19.2.6)
       pg:
-        specifier: latest
+        specifier: ^8.20.0
         version: 8.20.0
       react:
-        specifier: latest
+        specifier: ^19.2.6
         version: 19.2.6
       react-dom:
-        specifier: latest
+        specifier: ^19.2.6
         version: 19.2.6(react@19.2.6)
       simple-icons:
         specifier: ^16.19.0
         version: 16.19.0
       zod:
-        specifier: latest
+        specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
       '@tailwindcss/vite':
@@ -85,16 +85,16 @@ importers:
         specifier: ^4.2.4
         version: 4.2.4
       typescript:
-        specifier: latest
+        specifier: ^6.0.3
         version: 6.0.3
       vinxi:
-        specifier: latest
+        specifier: ^0.5.11
         version: 0.5.11(@types/node@25.6.1)(db0@0.3.4)(ioredis@5.10.1)(jiti@2.7.0)(lightningcss@1.32.0)(rolldown@1.0.0-rc.18)(terser@5.47.1)(yaml@2.8.3)
       vite:
-        specifier: latest
+        specifier: ^8.0.11
         version: 8.0.11(@types/node@25.6.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.47.1)(yaml@2.8.3)
       vitest:
-        specifier: latest
+        specifier: ^4.1.5
         version: 4.1.5(@types/node@25.6.1)(vite@8.0.11(@types/node@25.6.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.47.1)(yaml@2.8.3))
 
 packages:

@@ -25,16 +25,16 @@
     "@tanstack/react-form": "^1.29.1",
     "@tanstack/react-query": "^5.100.9",
     "@tanstack/react-query-devtools": "^5.100.9",
-    "@tanstack/react-router": "latest",
-    "@tanstack/react-start": "latest",
-    "@vitejs/plugin-react": "latest",
-    "cheerio": "latest",
+    "@tanstack/react-router": "^1.169.2",
+    "@tanstack/react-start": "^1.167.65",
+    "@vitejs/plugin-react": "^6.0.1",
+    "cheerio": "^1.2.0",
     "lucide-react": "^1.14.0",
-    "pg": "latest",
-    "react": "latest",
-    "react-dom": "latest",
+    "pg": "^8.20.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "simple-icons": "^16.19.0",
-    "zod": "latest"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
@@ -47,13 +47,13 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "tailwindcss": "^4.2.4",
-    "typescript": "latest",
-    "vinxi": "latest",
-    "vite": "latest",
-    "vitest": "latest"
+    "typescript": "^6.0.3",
+    "vinxi": "^0.5.11",
+    "vite": "^8.0.11",
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@10.33.2"
+  "packageManager": "pnpm@11.1.3"
 }
