@@ -1,0 +1,181 @@
+import { getDb } from '../db/client'
+
+export type Project = {
+  id: string
+  name: string
+  slug: string
+  channelsOnboardingCompleted: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProjectRole = 'owner'
+
+export type OperatorProject = Project & {
+  role: ProjectRole
+}
+
+type ProjectRow = {
+  id: string
+  name: string
+  slug: string
+  channels_onboarding_completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+type OperatorProjectRow = ProjectRow & { role: string }
+
+export async function createProject(input: {
+  operatorId: string
+  name: string
+}): Promise<OperatorProject> {
+  const name = input.name.trim()
+  if (!name) throw new Error('Project name is required.')
+
+  const db = getDb()
+  const client = await db.connect()
+
+  try {
+    await client.query('begin')
+    const slug = await reserveUniqueSlug(client, name)
+    const projectResult = await client.query<ProjectRow>(
+      `insert into projects (name, slug)
+       values ($1, $2)
+       returning id, name, slug, channels_onboarding_completed, created_at, updated_at`,
+      [name, slug],
+    )
+    const project = projectResult.rows[0]
+    if (!project) throw new Error('Failed to create project.')
+
+    await client.query(
+      `insert into operator_projects (operator_id, project_id, role)
+       values ($1, $2, 'owner')`,
+      [input.operatorId, project.id],
+    )
+
+    await client.query('commit')
+    return mapOperatorProjectRow({ ...project, role: 'owner' })
+  } catch (error) {
+    await client.query('rollback')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+export async function listOperatorProjects(operatorId: string): Promise<OperatorProject[]> {
+  const result = await getDb().query<OperatorProjectRow>(
+    `select
+       projects.id,
+       projects.name,
+       projects.slug,
+       projects.channels_onboarding_completed,
+       projects.created_at,
+       projects.updated_at,
+       operator_projects.role
+     from projects
+     join operator_projects on operator_projects.project_id = projects.id
+     where operator_projects.operator_id = $1
+     order by projects.created_at asc`,
+    [operatorId],
+  )
+  return result.rows.map(mapOperatorProjectRow)
+}
+
+export async function getProject(projectId: string): Promise<Project | null> {
+  const result = await getDb().query<ProjectRow>(
+    `select id, name, slug, channels_onboarding_completed, created_at, updated_at
+     from projects
+     where id = $1
+     limit 1`,
+    [projectId],
+  )
+  const row = result.rows[0]
+  return row ? mapProjectRow(row) : null
+}
+
+export async function setActiveProject(input: {
+  sessionId: string
+  operatorId: string
+  projectId: string | null
+}): Promise<void> {
+  if (input.projectId) {
+    await ensureOperatorProjectAccess(input.operatorId, input.projectId)
+  }
+  await getDb().query(
+    `update operator_sessions
+     set active_project_id = $2
+     where id = $1`,
+    [input.sessionId, input.projectId],
+  )
+}
+
+export async function ensureOperatorProjectAccess(operatorId: string, projectId: string) {
+  const result = await getDb().query<{ exists: boolean }>(
+    `select true as exists
+     from operator_projects
+     where operator_id = $1 and project_id = $2
+     limit 1`,
+    [operatorId, projectId],
+  )
+  if (!result.rows[0]?.exists) {
+    throw new Error('Operator does not have access to this project.')
+  }
+}
+
+/**
+ * Lowercase, dash-separated, ASCII-safe. Empty input becomes `project`.
+ * Caller is responsible for ensuring uniqueness — use {@link reserveUniqueSlug}.
+ */
+export function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '')
+    .slice(0, 60)
+  return slug || 'project'
+}
+
+type SlugQueryClient = {
+  query: <T extends { slug: string }>(
+    text: string,
+    values?: unknown[],
+  ) => Promise<{ rows: T[] }>
+}
+
+async function reserveUniqueSlug(client: SlugQueryClient, name: string) {
+  const base = slugify(name)
+  const result = await client.query<{ slug: string }>(
+    `select slug from projects where slug = $1 or slug like $2`,
+    [base, `${base}-%`],
+  )
+  const taken = new Set(result.rows.map((row) => row.slug))
+  if (!taken.has(base)) return base
+
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base}-${suffix}`
+    if (!taken.has(candidate)) return candidate
+  }
+  throw new Error('Unable to allocate unique project slug.')
+}
+
+function mapProjectRow(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    channelsOnboardingCompleted: row.channels_onboarding_completed,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapOperatorProjectRow(row: OperatorProjectRow): OperatorProject {
+  return {
+    ...mapProjectRow(row),
+    role: row.role === 'owner' ? 'owner' : 'owner',
+  }
+}

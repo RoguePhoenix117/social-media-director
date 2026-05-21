@@ -20,7 +20,13 @@ vi.mock('../app/lib/server/session', () => ({
     firstName: 'Test',
     onboardingStepCompleted: 2,
     onboardingDismissed: false,
+    activeProjectId: null,
+    isInstanceOwner: false,
   }),
+}))
+
+vi.mock('../app/lib/server/provider-accounts', () => ({
+  getProjectChannel: vi.fn(async () => null),
 }))
 
 vi.mock('../app/lib/server/codex-cli', () => ({
@@ -148,17 +154,43 @@ describe('settings persistence', () => {
     operatorSettingsRows.clear()
   })
 
-  it('saves X refresh token and reports it as configured', async () => {
-    const { getPublicSettingsStatus, saveAppSettings } = await import('../app/lib/server/settings')
+  it('reports channel status as not configured when no active project is provided', async () => {
+    const { getPublicSettingsStatus } = await import('../app/lib/server/settings')
 
-    await saveAppSettings({
-      xAccessToken: 'access-token',
-      xRefreshToken: 'refresh-token',
+    await expect(getPublicSettingsStatus({ checkCodexAuth: false })).resolves.toMatchObject({
+      xConfigured: false,
+      linkedinConfigured: false,
     })
+  })
 
-    await expect(getPublicSettingsStatus()).resolves.toMatchObject({
+  it('derives xConfigured / linkedinConfigured from the active project provider_accounts', async () => {
+    const { getPublicSettingsStatus } = await import('../app/lib/server/settings')
+    const providerAccounts = await import('../app/lib/server/provider-accounts')
+    vi.mocked(providerAccounts.getProjectChannel).mockImplementation(async (_projectId, provider) =>
+      provider === 'x'
+        ? ({
+            id: 'channel-1',
+            projectId: 'project-1',
+            provider: 'x',
+            externalAccountId: 'x-1',
+            displayName: 'X User',
+            username: 'xuser',
+            profileImageUrl: null,
+            authorUrn: null,
+            accessTokenCiphertext: 'ciphertext',
+            refreshTokenCiphertext: null,
+            tokenExpiresAt: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+        : null,
+    )
+
+    await expect(
+      getPublicSettingsStatus({ checkCodexAuth: false, projectId: 'project-1' }),
+    ).resolves.toMatchObject({
       xConfigured: true,
-      xRefreshConfigured: true,
+      linkedinConfigured: false,
     })
   })
 

@@ -3,8 +3,20 @@ import { isAiBackendType } from '../domain/ai-backends'
 import { getDb } from '../db/client'
 import { getCodexCliStatus } from './codex-cli'
 import { decryptSecret, encryptSecret } from './crypto'
+import { getProjectChannel } from './provider-accounts'
 import { readOperatorSession } from './session'
 
+/**
+ * Social channel tokens previously lived in `app_settings` and were the source
+ * of truth for `xConfigured` / `linkedinConfigured`. PR1 moves the source of
+ * truth to project-scoped `provider_accounts`. The legacy paste UI still
+ * exists (removed in PR4), so the legacy keys are still readable/writable here
+ * to avoid breaking that UI, but new code should not rely on them — pass
+ * `projectId` to {@link getPublicSettingsStatus} and channel status will be
+ * derived from `provider_accounts`.
+ *
+ * @deprecated Social token fields are scheduled for removal in PR4.
+ */
 export type AppSettings = {
   xAccessToken?: string
   xRefreshToken?: string
@@ -38,7 +50,8 @@ export type PublicSettingsStatus = {
   configuredAiBackendTypes: AiBackendType[]
 }
 
-const socialSettingKeys = [
+/** @deprecated Removed in PR4 with token paste UI. */
+const legacySocialSettingKeys = [
   'xAccessToken',
   'xRefreshToken',
   'linkedinAccessToken',
@@ -46,14 +59,14 @@ const socialSettingKeys = [
   'linkedinApiVersion',
 ] as const
 
-type SocialSettingKey = (typeof socialSettingKeys)[number]
+type LegacySocialSettingKey = (typeof legacySocialSettingKeys)[number]
 
 const legacyAiSettingKeys = ['aiProvider', 'openaiApiKey', 'openaiModel', 'codexCliModel'] as const
 
 export async function getAppSettings(): Promise<AppSettings & OperatorAiSettings> {
   const session = await readOperatorSession()
   const operatorId = session?.operatorId
-  const social = await getSocialAppSettings()
+  const social = await getLegacySocialAppSettings()
   const ai = operatorId ? await getOperatorAiSettings(operatorId) : emptyOperatorAiSettings()
 
   return { ...social, ...ai }
@@ -111,6 +124,7 @@ function mapOperatorAiSettingsRow(row: OperatorAiSettingsRow | undefined): Opera
 
 export async function getPublicSettingsStatus(options?: {
   checkCodexAuth?: boolean
+  projectId?: string | null
 }): Promise<PublicSettingsStatus> {
   const settings = await getAppSettings()
   const checkCodexAuth = options?.checkCodexAuth ?? true
@@ -133,6 +147,8 @@ export async function getPublicSettingsStatus(options?: {
         ? codexReady
         : false
 
+  const channelStatus = await getProjectChannelStatus(options?.projectId ?? null)
+
   return {
     modelConfigured: configuredAiBackendTypes.length > 0 && Boolean(activeAiBackendType && activeReady),
     activeAiBackendType,
@@ -140,9 +156,9 @@ export async function getPublicSettingsStatus(options?: {
     codexConfigured,
     codexReady,
     codexCliEnabled: activeAiBackendType === 'codexCli',
-    xConfigured: Boolean(settings.xAccessToken),
+    xConfigured: channelStatus.xConfigured,
     xRefreshConfigured: Boolean(settings.xRefreshToken),
-    linkedinConfigured: Boolean(settings.linkedinAccessToken && settings.linkedinAuthorUrn),
+    linkedinConfigured: channelStatus.linkedinConfigured,
     openaiModel: settings.openaiModel,
     codexCliModel: settings.codexCliModel,
     linkedinApiVersion: settings.linkedinApiVersion,
@@ -150,9 +166,26 @@ export async function getPublicSettingsStatus(options?: {
   }
 }
 
+/**
+ * Project-scoped channel status sourced from `provider_accounts`. When no
+ * active project is set (e.g. pre-onboarding bootstrap), both flags are false.
+ */
+async function getProjectChannelStatus(projectId: string | null) {
+  if (!projectId) return { xConfigured: false, linkedinConfigured: false }
+  const [x, linkedin] = await Promise.all([
+    getProjectChannel(projectId, 'x'),
+    getProjectChannel(projectId, 'linkedin'),
+  ])
+  return {
+    xConfigured: Boolean(x),
+    linkedinConfigured: Boolean(linkedin),
+  }
+}
+
+/** @deprecated Use OAuth flows + `upsertProviderAccount` (PR3/PR5). */
 export async function saveAppSettings(settings: AppSettings) {
   const db = getDb()
-  for (const key of socialSettingKeys) {
+  for (const key of legacySocialSettingKeys) {
     const value = settings[key]
     if (value === undefined) continue
 
@@ -252,14 +285,14 @@ export function getGenerationAiConfig(settings: AppSettings & OperatorAiSettings
   }
 }
 
-async function getSocialAppSettings(): Promise<AppSettings> {
+async function getLegacySocialAppSettings(): Promise<AppSettings> {
   const result = await getDb().query<{ key: string; value_ciphertext: string }>(
     'select key, value_ciphertext from app_settings',
   )
   const settings: AppSettings = {}
 
   for (const row of result.rows) {
-    if (!isSocialSettingKey(row.key)) continue
+    if (!isLegacySocialSettingKey(row.key)) continue
     settings[row.key] = decryptSecret(row.value_ciphertext)
   }
 
@@ -330,6 +363,6 @@ function emptyOperatorAiSettings(): OperatorAiSettings {
   }
 }
 
-function isSocialSettingKey(key: string): key is SocialSettingKey {
-  return (socialSettingKeys as readonly string[]).includes(key)
+function isLegacySocialSettingKey(key: string): key is LegacySocialSettingKey {
+  return (legacySocialSettingKeys as readonly string[]).includes(key)
 }

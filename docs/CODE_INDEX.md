@@ -53,13 +53,14 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 
 | Module | Use for |
 |--------|---------|
-| `session.ts` | Operator session cookie |
-| `settings.ts` | Operator AI settings, public status |
+| `session.ts` | Operator session cookie (incl. `activeProjectId`, `isInstanceOwner`) |
+| `settings.ts` | Operator AI settings + public status (channel status is project-scoped — pass `projectId`) |
 | `crypto.ts` | Encrypt/decrypt, passwords |
 | `codex-cli.ts` | Codex CLI status/models |
-| `instance-config.ts` | OAuth app credentials (PR1) |
-| `projects.ts` | Project membership (PR1) |
-| `provider-accounts.ts` | Connected channels (PR1) |
+| `instance-config.ts` | OAuth app credentials (env overrides DB) + `isInstanceConfigured` / `markInstanceConfigured` |
+| `projects.ts` | `createProject`, `listOperatorProjects`, `setActiveProject`, `ensureOperatorProjectAccess`, `slugify` |
+| `provider-accounts.ts` | `listProjectChannels`, `getProjectChannel`, `upsertProviderAccount`, `disconnectChannel` |
+| `setup-guard.ts` | `assertSetupKeyValid`, `isLocalhostOrigin`, `isSetupKeyConfigured` (used by PR2 setup route) |
 | `oauth/x.ts`, `oauth/linkedin.ts` | OAuth flows (PR3/PR5) |
 
 ## Schemas & queries (`app/lib/`)
@@ -68,7 +69,8 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 |--------|---------|
 | `dashboard-schemas.ts` | Dashboard form/API zod schemas |
 | `password-schema.ts` | Shared password validation |
-| `bootstrap-query.ts` | App bootstrap React Query options |
+| `bootstrap-query.ts` | App bootstrap React Query options + `BootstrapState` type (includes `instanceConfigured`, `activeProjectId`, `projects`, `connectedChannels`, `isInstanceOwner`) |
+| `onboarding-steps.ts` | Canonical step IDs/numbers (`ONBOARDING_STEPS`); use instead of magic 1–4 |
 | `query.ts` | Shared query client helpers |
 | `domain/providers.ts` | Provider types |
 | `domain/validation.ts` | Post validation per provider |

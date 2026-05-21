@@ -13,6 +13,8 @@ export type OperatorSession = {
   firstName: string | null
   onboardingStepCompleted: number
   onboardingDismissed: boolean
+  activeProjectId: string | null
+  isInstanceOwner: boolean
 }
 
 export async function createOperatorSession(operatorId: string) {
@@ -38,7 +40,9 @@ export async function readOperatorSession(): Promise<OperatorSession | null> {
        operators.email,
        operators.first_name as "firstName",
        operators.onboarding_step_completed as "onboardingStepCompleted",
-       (operators.onboarding_dismissed_at is not null) as "onboardingDismissed"
+       (operators.onboarding_dismissed_at is not null) as "onboardingDismissed",
+       operator_sessions.active_project_id as "activeProjectId",
+       coalesce(operators.is_instance_owner, false) as "isInstanceOwner"
      from operator_sessions
      join operators on operators.id = operator_sessions.operator_id
      where operator_sessions.token_hash = $1

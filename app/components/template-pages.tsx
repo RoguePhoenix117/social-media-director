@@ -2,7 +2,6 @@ import { Link } from '@tanstack/react-router'
 import {
   Activity,
   AlertCircle,
-  BarChart3,
   Check,
   Construction,
   Eye,

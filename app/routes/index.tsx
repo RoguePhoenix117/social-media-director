@@ -312,6 +312,11 @@ function Dashboard() {
             onboardingDismissed: false,
             settings: result.settings,
             codexCli: result.codexCli,
+            instanceConfigured: authState.instanceConfigured,
+            isInstanceOwner: true,
+            activeProjectId: null,
+            projects: [],
+            connectedChannels: [],
           })
         }}
         onModelStepComplete={async (nextSettings) => {
@@ -370,6 +375,11 @@ function Dashboard() {
             onboardingDismissed: result.onboardingDismissed,
             settings: result.settings,
             codexCli: result.codexCli,
+            instanceConfigured: authState.instanceConfigured,
+            isInstanceOwner: authState.isInstanceOwner,
+            activeProjectId: authState.activeProjectId,
+            projects: authState.projects,
+            connectedChannels: authState.connectedChannels,
           })
         }}
       />
@@ -417,6 +427,11 @@ function Dashboard() {
       onboardingDismissed: false,
       settings: null,
       codexCli: null,
+      instanceConfigured: authState.instanceConfigured,
+      isInstanceOwner: false,
+      activeProjectId: null,
+      projects: [],
+      connectedChannels: [],
     })
   }
 

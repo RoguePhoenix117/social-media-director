@@ -1,4 +1,4 @@
-import type { PublishPayload, PublishResult, SocialProviderAdapter } from '../domain/providers'
+import type { PublishResult, SocialProviderAdapter } from '../domain/providers'
 import { validateProviderPayload } from '../domain/validation'
 
 export type LinkedInPublishOptions = {

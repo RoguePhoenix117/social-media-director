@@ -13,7 +13,16 @@ import { validateProviderPayload } from '../lib/domain/validation'
 import { getProviderAdapter } from '../lib/providers'
 import { getCodexCliStatus, type CodexCliStatus } from '../lib/server/codex-cli'
 import { hashPassword, verifyPassword } from '../lib/server/crypto'
+import { isInstanceConfigured } from '../lib/server/instance-config'
 import { logError, logInfo } from '../lib/server/logger'
+import {
+  listOperatorProjects,
+  type OperatorProject,
+} from '../lib/server/projects'
+import {
+  listPublicProjectChannels,
+  type PublicProjectChannel,
+} from '../lib/server/provider-accounts'
 import {
   createOperatorSession,
   destroyCurrentSession,
@@ -50,6 +59,11 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
         onboardingDismissed: false,
         settings: null,
         codexCli: null,
+        instanceConfigured: false,
+        isInstanceOwner: false,
+        activeProjectId: null,
+        projects: [],
+        connectedChannels: [],
       }
     }
 
@@ -64,10 +78,23 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     hasOperator,
     isAuthenticated: Boolean(session),
   })
+
+  const instanceConfigured = await isInstanceConfigured()
+
   let settings = null
+  let projects: OperatorProject[] = []
+  let connectedChannels: PublicProjectChannel[] = []
+  let activeProjectId: string | null = null
+
   if (hasOperator && session) {
+    projects = await listOperatorProjects(session.operatorId)
+    activeProjectId = resolveActiveProjectId(session.activeProjectId, projects)
+    connectedChannels = activeProjectId ? await listPublicProjectChannels(activeProjectId) : []
     logInfo('bootstrap.settings_loading', { durationMs: Date.now() - startedAt })
-    settings = await getPublicSettingsStatus({ checkCodexAuth: false })
+    settings = await getPublicSettingsStatus({
+      checkCodexAuth: false,
+      projectId: activeProjectId,
+    })
     logInfo('bootstrap.settings_loaded', { durationMs: Date.now() - startedAt })
   }
   const codexCli: CodexCliStatus | null = null
@@ -77,6 +104,8 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     hasOperator,
     isAuthenticated: Boolean(session),
     hasCodexStatus: Boolean(codexCli),
+    instanceConfigured,
+    projectCount: projects.length,
   })
 
   return {
@@ -89,8 +118,29 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     onboardingDismissed: session?.onboardingDismissed ?? false,
     settings,
     codexCli,
+    instanceConfigured,
+    isInstanceOwner: session?.isInstanceOwner ?? false,
+    activeProjectId,
+    projects,
+    connectedChannels,
   }
 })
+
+/**
+ * Prefer the session's stored active project, but fall back to the operator's
+ * first project so a fresh session after sign-up isn't blank. PR4 will set
+ * `active_project_id` explicitly on project creation; this guard keeps the
+ * bootstrap robust until then.
+ */
+function resolveActiveProjectId(
+  sessionActiveProjectId: string | null,
+  projects: OperatorProject[],
+): string | null {
+  if (sessionActiveProjectId && projects.some((project) => project.id === sessionActiveProjectId)) {
+    return sessionActiveProjectId
+  }
+  return projects[0]?.id ?? null
+}
 
 export const saveAccountStep = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => accountStepInputSchema.parse(input))
@@ -105,8 +155,8 @@ export const saveAccountStep = createServerFn({ method: 'POST' })
     const passwordHash = await hashPassword(data.password)
     const operator = await getDb().query<{ id: string }>(
       `insert into operators
-        (email, first_name, password_hash, onboarding_step_completed)
-       values ($1, $2, $3, 1)
+        (email, first_name, password_hash, onboarding_step_completed, is_instance_owner)
+       values ($1, $2, $3, 1, true)
        returning id`,
       [data.email.toLowerCase(), data.firstName?.trim() || null, passwordHash],
     )
