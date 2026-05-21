@@ -45,7 +45,8 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 |------|--------|
 | `dashboard.ts` | Bootstrap, auth, import, publish |
 | `ai-workspace.ts` | AI connection test/save |
-| `setup.ts` | Instance Setup Mode (PR2) |
+| `settings.ts` | Settings page state + legacy social token paste (PR4 sunset) |
+| `setup.ts` | Instance Setup Mode + Developer settings (`getInstanceSetupStatus`, `saveInstanceSetup`, `getDeveloperSettings`, `saveDeveloperSettings`) |
 | `projects.ts` | Project CRUD, active project (PR1) |
 | `channels.ts` | List/disconnect channels (PR3+) |
 
@@ -61,6 +62,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `projects.ts` | `createProject`, `listOperatorProjects`, `setActiveProject`, `ensureOperatorProjectAccess`, `slugify` |
 | `provider-accounts.ts` | `listProjectChannels`, `getProjectChannel`, `upsertProviderAccount`, `disconnectChannel` |
 | `setup-guard.ts` | `assertSetupKeyValid`, `isLocalhostOrigin`, `isSetupKeyConfigured` (used by PR2 setup route) |
+| `setup-helpers.ts` | Pure helpers shared by Setup Mode + Settings → Developers (`buildSaveInput`, `toProviderStatus`, `buildCallbackUrls`, `computeSetupKeyState`) |
 | `oauth/x.ts`, `oauth/linkedin.ts` | OAuth flows (PR3/PR5) |
 
 ## Schemas & queries (`app/lib/`)
@@ -88,6 +90,13 @@ app/features/{feature}/
 ```
 
 Prefer `app/components/{feature}/` until a feature needs hooks + multiple pages.
+
+### Active feature modules
+
+| Folder | Purpose |
+|--------|---------|
+| `app/features/setup/` | Setup Mode wizard (`setup-wizard.tsx`, `setup-key-gate.tsx`, `provider-credential-fields.tsx`, `setup-callback-url.tsx`, `setup-query.ts`) |
+| `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `legacy-publishing-section.tsx`, `setup-guides-section.tsx`, `settings-query.ts`) |
 
 ## Anti-patterns (do not extend)
 

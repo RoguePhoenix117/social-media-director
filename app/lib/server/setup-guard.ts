@@ -13,7 +13,8 @@ export function isLocalhostOrigin(origin: string | null | undefined): boolean {
   if (!origin) return false
   try {
     const url = new URL(origin)
-    return LOCAL_HOSTNAMES.has(url.hostname)
+    const hostname = url.hostname.replace(/^\[(.*)\]$/, '$1')
+    return LOCAL_HOSTNAMES.has(hostname)
   } catch {
     return false
   }

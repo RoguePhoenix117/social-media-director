@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -64,7 +64,13 @@ import {
 } from '../server/dashboard'
 
 export const Route = createFileRoute('/')({
-  loader: ({ context }) => context.queryClient.ensureQueryData(bootstrapQueryOptions()),
+  loader: async ({ context }) => {
+    const bootstrap = await context.queryClient.ensureQueryData(bootstrapQueryOptions())
+    if (bootstrap.databaseAvailable && !bootstrap.instanceConfigured) {
+      throw redirect({ to: '/setup' })
+    }
+    return bootstrap
+  },
   component: Dashboard,
   errorComponent: DashboardError,
 })

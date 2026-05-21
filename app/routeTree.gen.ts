@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StatsRouteImport } from './routes/stats'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PostRouteImport } from './routes/post'
 import { Route as MonitorRouteImport } from './routes/monitor'
@@ -19,6 +20,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const StatsRoute = StatsRouteImport.update({
   id: '/stats',
   path: '/stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/monitor': typeof MonitorRoute
   '/post': typeof PostRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
 }
 export interface FileRoutesByTo {
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/monitor': typeof MonitorRoute
   '/post': typeof PostRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
 }
 export interface FileRoutesById {
@@ -70,13 +78,21 @@ export interface FileRoutesById {
   '/monitor': typeof MonitorRoute
   '/post': typeof PostRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/draft' | '/monitor' | '/post' | '/settings' | '/stats'
+  fullPaths:
+    | '/'
+    | '/draft'
+    | '/monitor'
+    | '/post'
+    | '/settings'
+    | '/setup'
+    | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/draft' | '/monitor' | '/post' | '/settings' | '/stats'
+  to: '/' | '/draft' | '/monitor' | '/post' | '/settings' | '/setup' | '/stats'
   id:
     | '__root__'
     | '/'
@@ -84,6 +100,7 @@ export interface FileRouteTypes {
     | '/monitor'
     | '/post'
     | '/settings'
+    | '/setup'
     | '/stats'
   fileRoutesById: FileRoutesById
 }
@@ -93,6 +110,7 @@ export interface RootRouteChildren {
   MonitorRoute: typeof MonitorRoute
   PostRoute: typeof PostRoute
   SettingsRoute: typeof SettingsRoute
+  SetupRoute: typeof SetupRoute
   StatsRoute: typeof StatsRoute
 }
 
@@ -103,6 +121,13 @@ declare module '@tanstack/react-router' {
       path: '/stats'
       fullPath: '/stats'
       preLoaderRoute: typeof StatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -149,6 +174,7 @@ const rootRouteChildren: RootRouteChildren = {
   MonitorRoute: MonitorRoute,
   PostRoute: PostRoute,
   SettingsRoute: SettingsRoute,
+  SetupRoute: SetupRoute,
   StatsRoute: StatsRoute,
 }
 export const routeTree = rootRouteImport
