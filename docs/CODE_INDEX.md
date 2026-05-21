@@ -15,18 +15,16 @@ Search this file and the paths below before adding new code. Extend this index w
 | `platform-icons.tsx` | Social platform icons (`PlatformIcon`) |
 | `design-context.tsx` | Theme/layout context |
 | `template-pages.tsx` | Template route page wrappers |
-| `x-api-guide.tsx` | Developer X setup copy (moving to docs; do not reuse in onboarding) |
-
-### Planned (plan.md — create here, not in routes)
-
-| Module | Use for |
-|--------|---------|
-| `connect-channels/connect-channels-modal.tsx` | OAuth channel grid modal |
-| `connect-channels/channel-tile.tsx` | Single platform tile |
-| `connect-channels/connected-channel-card.tsx` | Connected account row |
-| `channel-progress-button.tsx` | Dashboard `N/2 Channels` control |
-| `create-project-screen.tsx` | First/additional project name form |
-| `onboarding/` | Account step, wizard shell, step indicator |
+| `x-api-guide.tsx` | Developer X setup copy (used by docs only — not onboarding) |
+| `channel-progress-button.tsx` | Dashboard `N/2 Channels` control (click → open Connect Channels modal) |
+| `create-project-screen.tsx` | Project name form (onboarding step 2 + future Settings → Projects) |
+| `connect-channels/connect-channels-modal.tsx` | Centered OAuth channel grid modal (dismiss via outside click, X, Continue, Skip) |
+| `connect-channels/channel-tile.tsx` | Single platform tile (active link / connected badge / coming-soon) |
+| `connect-channels/connected-channel-card.tsx` | Connected account row (avatar + display name + handle) |
+| `onboarding/onboarding-wizard.tsx` | Four-step wizard shell (account → project → channels → AI) |
+| `onboarding/wizard-stepper.tsx` | Numbered step indicator + navigation guards |
+| `onboarding/account-step.tsx` | Step 1 form — email/password/name |
+| `onboarding/login-screen.tsx` | Return-user login screen |
 
 ## Routes (`app/routes/`)
 
@@ -34,7 +32,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 
 | Route | Target component |
 |-------|------------------|
-| `/` | `features/dashboard/` (extract from legacy `index.tsx`) |
+| `/` | `features/dashboard/dashboard-screen.tsx` (extracted from legacy monolith in PR4) |
 | `/setup` | `features/setup/setup-wizard.tsx` |
 | `/settings` | `features/settings/settings-page.tsx` |
 | `/integrations/social/x` | `routes/integrations/social/x/index.tsx` — calls `startXOAuth()` from loader (`x/index.tsx` not `x.tsx` so the sibling `callback` route does not inherit the redirect) |
@@ -45,11 +43,11 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 
 | File | Domain |
 |------|--------|
-| `dashboard.ts` | Bootstrap, auth, import, publish (`publishVariant` reads X token from `provider_accounts`; LinkedIn still legacy until PR5) |
+| `dashboard.ts` | Bootstrap, auth, import, publish (`publishVariant` reads X token from `provider_accounts`; LinkedIn throws until PR5) |
 | `ai-workspace.ts` | AI connection test/save |
-| `settings.ts` | Settings page state + legacy social token paste (PR4 sunset) |
+| `settings.ts` | Settings page state aggregator (read-only since PR4 removed legacy paste) |
 | `setup.ts` | Instance Setup Mode + Developer settings (`getInstanceSetupStatus`, `saveInstanceSetup`, `getDeveloperSettings`, `saveDeveloperSettings`) |
-| `projects.ts` | Project CRUD, active project (PR1) |
+| `projects.ts` | Onboarding-aware project lifecycle: `createProjectStep`, `completeChannelsStep`, `completeOnboarding` (PR4) |
 | `channels.ts` | `listProjectChannels`, `startXOAuth`, `completeXOAuth` (PR3); LinkedIn variants land in PR5 |
 
 ## Server libraries (`app/lib/server/`)
@@ -57,7 +55,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | Module | Use for |
 |--------|---------|
 | `session.ts` | Operator session cookie (incl. `activeProjectId`, `isInstanceOwner`) |
-| `settings.ts` | Operator AI settings + public status (channel status is project-scoped — pass `projectId`) |
+| `settings.ts` | Operator AI settings + public status (channel status is project-scoped — pass `projectId`). PR4 removed all legacy social token reads/writes; tokens live in `provider_accounts` only. |
 | `crypto.ts` | Encrypt/decrypt, passwords |
 | `codex-cli.ts` | Codex CLI status/models |
 | `instance-config.ts` | OAuth app credentials (env overrides DB) + `isInstanceConfigured` / `markInstanceConfigured` |
@@ -73,10 +71,11 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 
 | Module | Use for |
 |--------|---------|
-| `dashboard-schemas.ts` | Dashboard form/API zod schemas |
+| `dashboard-schemas.ts` | Dashboard form/API zod schemas (PR4 removed `xStep*` / `linkedinStep*`) |
 | `password-schema.ts` | Shared password validation |
 | `bootstrap-query.ts` | App bootstrap React Query options + `BootstrapState` type (includes `instanceConfigured`, `activeProjectId`, `projects`, `connectedChannels`, `isInstanceOwner`) |
-| `onboarding-steps.ts` | Canonical step IDs/numbers (`ONBOARDING_STEPS`); use instead of magic 1–4 |
+| `onboarding-steps.ts` | Canonical step IDs/numbers (`ONBOARDING_STEPS`); use instead of magic 1–5 |
+| `channel-catalog.ts` | `CHANNEL_CATALOG` (X active, LinkedIn coming-soon until PR5, 20+ disabled tiles) + `TOTAL_CHANNEL_SLOTS` |
 | `query.ts` | Shared query client helpers |
 | `domain/providers.ts` | Provider types |
 | `domain/validation.ts` | Post validation per provider |
@@ -100,11 +99,13 @@ Prefer `app/components/{feature}/` until a feature needs hooks + multiple pages.
 | Folder | Purpose |
 |--------|---------|
 | `app/features/setup/` | Setup Mode wizard (`setup-wizard.tsx`, `setup-key-gate.tsx`, `provider-credential-fields.tsx`, `setup-callback-url.tsx`, `setup-query.ts`) |
-| `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `legacy-publishing-section.tsx`, `setup-guides-section.tsx`, `settings-query.ts`) |
+| `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `channels-section.tsx`, `settings-query.ts`) |
+| `app/features/dashboard/` | Authenticated dashboard composition (`dashboard-screen.tsx`, `dashboard-status-grid.tsx`, `import-workspace.tsx`, `database-setup-screen.tsx`) — extracted from the legacy `app/routes/index.tsx` monolith |
 
 ## Anti-patterns (do not extend)
 
-- `app/routes/index.tsx` — legacy monolith; extract, do not grow
+- `app/routes/index.tsx` — kept thin (~43 lines after PR4 refactor). New dashboard work belongs in `app/features/dashboard/`.
 - Inline `createServerFn` in route files
 - New zod schemas colocated in components when shared with server
 - Duplicating `PlatformIcon`, form patterns, or bootstrap types
+- Re-introducing manual social token paste UI or `app_settings` writes for user tokens — channels are OAuth-only since PR4

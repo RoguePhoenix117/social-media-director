@@ -33,28 +33,6 @@ export const accountStepFormSchema = z
     path: ['confirmPassword'],
   })
 
-export const xStepInputSchema = z.object({
-  xAccessToken: z.string().optional(),
-  xRefreshToken: z.string().optional(),
-})
-
-export const xStepFormSchema = z.object({
-  xAccessToken: z.string(),
-  xRefreshToken: z.string(),
-})
-
-export const linkedinStepInputSchema = z.object({
-  linkedinAccessToken: z.string().optional(),
-  linkedinAuthorUrn: z.string().optional(),
-  linkedinApiVersion: z.string().optional(),
-})
-
-export const linkedinStepFormSchema = z.object({
-  linkedinAccessToken: z.string(),
-  linkedinAuthorUrn: z.string(),
-  linkedinApiVersion: z.string(),
-})
-
 export const publishInputSchema = z.object({
   provider: z.enum(['x', 'linkedin']),
   text: z.string().min(1),

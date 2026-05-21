@@ -2,10 +2,8 @@ import { createServerFn } from '@tanstack/react-start'
 import {
   accountStepInputSchema,
   importInputSchema,
-  linkedinStepInputSchema,
   loginInputSchema,
   publishInputSchema,
-  xStepInputSchema,
 } from '../lib/dashboard-schemas'
 import { getDb, queryWithTimeout } from '../lib/db/client'
 import { isDatabaseConnectionError } from '../lib/db/errors'
@@ -34,7 +32,6 @@ import {
   getAppSettings,
   getGenerationAiConfig,
   getPublicSettingsStatus,
-  saveAppSettings,
 } from '../lib/server/settings'
 
 export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async () => {
@@ -184,48 +181,6 @@ export const advanceModelStep = createServerFn({ method: 'POST' }).handler(async
   }
 })
 
-export const saveXStep = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => xStepInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const session = await requireOperatorSession()
-    await saveAppSettings({
-      xAccessToken: data.xAccessToken,
-      xRefreshToken: data.xRefreshToken,
-    })
-    await getDb().query(
-      `update operators
-       set onboarding_step_completed = greatest(onboarding_step_completed, 3)
-       where id = $1`,
-      [session.operatorId],
-    )
-    return {
-      settings: await getPublicSettingsStatus(),
-      onboardingStepCompleted: 3,
-    }
-  })
-
-export const saveLinkedInStep = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => linkedinStepInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const session = await requireOperatorSession()
-    await saveAppSettings({
-      linkedinAccessToken: data.linkedinAccessToken,
-      linkedinAuthorUrn: data.linkedinAuthorUrn,
-      linkedinApiVersion: data.linkedinApiVersion || '202604',
-    })
-    await getDb().query(
-      `update operators
-       set onboarding_step_completed = 4,
-           onboarding_completed_at = coalesce(onboarding_completed_at, now())
-       where id = $1`,
-      [session.operatorId],
-    )
-    return {
-      settings: await getPublicSettingsStatus(),
-      onboardingStepCompleted: 4,
-    }
-  })
-
 export const loginOperator = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => loginInputSchema.parse(input))
   .handler(async ({ data }) => {
@@ -322,56 +277,33 @@ export const publishVariant = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => publishInputSchema.parse(input))
   .handler(async ({ data }) => {
     const session = await requireOperatorSession()
-    const settings = await getAppSettings()
-    const adapter = getProviderAdapter(data.provider, {
-      linkedinAuthorUrn: settings.linkedinAuthorUrn,
-      linkedinApiVersion: settings.linkedinApiVersion,
-    })
-
-    const token = await resolvePublishToken({
-      provider: data.provider,
-      activeProjectId: session.activeProjectId,
-      legacyXToken: settings.xAccessToken,
-      legacyLinkedInToken: settings.linkedinAccessToken,
-    })
-
-    if (data.provider === 'linkedin' && !settings.linkedinAuthorUrn) {
-      throw new Error('LinkedIn author URN is not configured.')
+    if (!session.activeProjectId) {
+      throw new Error('Create a project before publishing.')
     }
 
+    const channel = await getProjectChannel(session.activeProjectId, data.provider)
+    if (!channel) {
+      if (data.provider === 'linkedin') {
+        throw new Error('LinkedIn OAuth is coming in the next release. Connect X for now.')
+      }
+      throw new Error('X is not connected for this project. Open the Connect Channels modal first.')
+    }
+
+    const adapter = getProviderAdapter(data.provider, {
+      linkedinAuthorUrn: channel.authorUrn ?? undefined,
+      linkedinApiVersion: undefined,
+    })
+
+    if (data.provider === 'linkedin' && !channel.authorUrn) {
+      throw new Error('LinkedIn channel is missing the author URN. Reconnect LinkedIn.')
+    }
+
+    const token = decryptSecret(channel.accessTokenCiphertext)
     const result = await adapter.publish(data, token)
     return {
       providerPostId: result.providerPostId,
       providerPostUrl: result.providerPostUrl,
     }
   })
-
-/**
- * X tokens come from the project's `provider_accounts` (PR3 OAuth flow).
- * LinkedIn still uses the legacy paste-based `app_settings` token until PR5
- * lands the LinkedIn OAuth flow.
- */
-async function resolvePublishToken(input: {
-  provider: 'x' | 'linkedin'
-  activeProjectId: string | null
-  legacyXToken: string | undefined
-  legacyLinkedInToken: string | undefined
-}): Promise<string> {
-  if (input.provider === 'x') {
-    if (!input.activeProjectId) {
-      throw new Error('Select a project before publishing.')
-    }
-    const account = await getProjectChannel(input.activeProjectId, 'x')
-    if (!account) {
-      throw new Error('X is not connected for this project.')
-    }
-    return decryptSecret(account.accessTokenCiphertext)
-  }
-
-  if (!input.legacyLinkedInToken) {
-    throw new Error('LinkedIn credentials are not configured.')
-  }
-  return input.legacyLinkedInToken
-}
 
 export type ImportResult = Awaited<ReturnType<typeof importAndGenerate>>

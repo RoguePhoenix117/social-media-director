@@ -1,40 +1,31 @@
 import { createServerFn } from '@tanstack/react-start'
-import { z } from 'zod'
 import { getCodexCliStatus } from '../lib/server/codex-cli'
+import { listPublicProjectChannels, type PublicProjectChannel } from '../lib/server/provider-accounts'
 import { requireOperatorSession } from '../lib/server/session'
-import { getPublicSettingsStatus, saveAppSettings } from '../lib/server/settings'
+import { getPublicSettingsStatus } from '../lib/server/settings'
 
 /**
- * Server entry points for the settings page. The legacy token-paste mutation
- * lives here too so the route file can stay compositional; it disappears in
- * PR4 when manual token paste is removed entirely (see plan.md).
+ * Server entry points for the Settings page.
+ *
+ * PR4 hard-cutover removed the legacy social token paste form, so this file
+ * is now a thin read-only state aggregator. New mutations live in their own
+ * domain server files (`app/server/projects.ts`, `app/server/channels.ts`,
+ * `app/server/setup.ts`).
  */
-
-/** @deprecated Removed in PR4 with the token paste UI. */
-const legacySocialSettingsSchema = z.object({
-  xAccessToken: z.string().optional(),
-  xRefreshToken: z.string().optional(),
-  linkedinAccessToken: z.string().optional(),
-  linkedinAuthorUrn: z.string().optional(),
-  linkedinApiVersion: z.string().optional(),
-})
 
 export const getSettingsPageState = createServerFn({ method: 'GET' }).handler(async () => {
   const session = await requireOperatorSession()
+  const connectedChannels: PublicProjectChannel[] = session.activeProjectId
+    ? await listPublicProjectChannels(session.activeProjectId)
+    : []
+
   return {
     operatorEmail: session.email,
     operatorFirstName: session.firstName,
     isInstanceOwner: session.isInstanceOwner,
-    settings: await getPublicSettingsStatus(),
+    activeProjectId: session.activeProjectId,
+    connectedChannels,
+    settings: await getPublicSettingsStatus({ projectId: session.activeProjectId }),
     codexCli: await getCodexCliStatus(),
   }
 })
-
-/** @deprecated Removed in PR4 with the token paste UI. */
-export const saveLegacySocialSettings = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => legacySocialSettingsSchema.parse(input))
-  .handler(async ({ data }) => {
-    await requireOperatorSession()
-    await saveAppSettings(data)
-    return getPublicSettingsStatus()
-  })

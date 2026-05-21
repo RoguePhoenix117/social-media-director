@@ -1889,6 +1889,248 @@ textarea {
   color: #344054;
 }
 
+/* PR4 — Connect Channels modal */
+
+.connect-channels-backdrop {
+  z-index: 60;
+}
+
+.connect-channels-modal {
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  box-shadow: 0 24px 68px rgba(16, 24, 40, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: calc(100vh - 60px);
+  max-width: 820px;
+  overflow-y: auto;
+  padding: 26px;
+  position: relative;
+  width: min(100%, 820px);
+}
+
+.connect-channels-close {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+}
+
+.connect-channels-header h2 {
+  margin: 6px 0 4px;
+}
+
+.connect-channels-header p {
+  color: #475467;
+  margin: 0;
+}
+
+.connect-channels-connected-section {
+  background: #f9fafb;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.connect-channels-connected-section h3 {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+
+.connect-channels-grid-heading {
+  color: #344054;
+  font-size: 0.95rem;
+  margin: 0 0 12px;
+}
+
+.connect-channels-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+
+.connect-channels-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.connect-channels-footer .primary-button {
+  align-items: center;
+  background: #6f4fff;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  padding: 10px 18px;
+}
+
+/* Channel tile */
+
+.channel-tile {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  color: #344054;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 96px;
+  padding: 14px 8px;
+  position: relative;
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.channel-tile--active:hover {
+  border-color: #6f4fff;
+  transform: translateY(-1px);
+}
+
+.channel-tile--disabled,
+.channel-tile--connected {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.channel-tile--connected {
+  border-color: #16a34a;
+  opacity: 1;
+}
+
+.channel-tile-icon {
+  align-items: center;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.channel-tile-label {
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.channel-tile-badge {
+  align-items: center;
+  background: #6f4fff;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.65rem;
+  font-weight: 700;
+  justify-content: center;
+  padding: 2px 6px;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+
+.channel-tile-badge--connected {
+  background: #16a34a;
+  padding: 3px;
+}
+
+.channel-tile-badge--soon {
+  background: #344054;
+}
+
+/* Connected channel card */
+
+.connected-channel-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.connected-channel-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.connected-channel-avatar {
+  align-items: center;
+  background: #f2f4f7;
+  border-radius: 999px;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  overflow: hidden;
+  width: 36px;
+}
+
+.connected-channel-avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.connected-channel-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.connected-channel-meta small {
+  color: #667085;
+}
+
+.connected-channel-list--settings {
+  margin-bottom: 12px;
+}
+
+/* Channel progress button */
+
+.channel-progress-button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d0d5dd;
+  border-radius: 999px;
+  color: #344054;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
+.channel-progress-button:hover:not(:disabled) {
+  border-color: #6f4fff;
+  color: #1f2937;
+}
+
+.channel-progress-button--complete {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #166534;
+}
+
+/* Onboarding step content */
+
+.onboarding-step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stat-card-action--button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     padding: 20px;
@@ -1920,6 +2162,14 @@ textarea {
   .developer-provider-grid,
   .setup-stepper {
     grid-template-columns: 1fr;
+  }
+
+  .connect-channels-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .connect-channels-modal {
+    padding: 18px;
   }
 
   .ai-method-card {

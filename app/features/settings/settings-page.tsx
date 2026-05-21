@@ -6,10 +6,9 @@ import { AppLayout } from '../../components/app-layout'
 import { bootstrapQueryKey } from '../../lib/bootstrap-query'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
 import type { getSettingsPageState } from '../../server/settings'
+import { ChannelsSection } from './channels-section'
 import { DevelopersSection } from './developers-section'
-import { LegacyPublishingSection } from './legacy-publishing-section'
 import { settingsPageQueryKey, settingsPageQueryOptions } from './settings-query'
-import { LegacySetupGuides } from './setup-guides-section'
 
 type SettingsPageState = Awaited<ReturnType<typeof getSettingsPageState>>
 
@@ -40,8 +39,8 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
           <p className="eyebrow">Settings</p>
           <h1>Configuration and appearance</h1>
           <p className="page-summary">
-            Manage AI generation, OAuth app credentials, and dashboard layout. Credentials
-            are encrypted in your local database.
+            Manage AI generation, OAuth app credentials, and connected channels. All
+            secrets are encrypted in your local database.
           </p>
         </div>
       </header>
@@ -61,12 +60,10 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
 
         <DevelopersSection isInstanceOwner={pageState.isInstanceOwner} />
 
-        <LegacyPublishingSection
-          onSaved={(nextSettings) => void onSettingsChanged(nextSettings)}
-          settings={settings}
+        <ChannelsSection
+          activeProjectId={pageState.activeProjectId}
+          connectedChannels={pageState.connectedChannels}
         />
-
-        <LegacySetupGuides />
       </div>
 
       <AppearanceSettings />

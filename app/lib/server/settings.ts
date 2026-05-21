@@ -7,24 +7,11 @@ import { getProjectChannel } from './provider-accounts'
 import { readOperatorSession } from './session'
 
 /**
- * Social channel tokens previously lived in `app_settings` and were the source
- * of truth for `xConfigured` / `linkedinConfigured`. PR1 moves the source of
- * truth to project-scoped `provider_accounts`. The legacy paste UI still
- * exists (removed in PR4), so the legacy keys are still readable/writable here
- * to avoid breaking that UI, but new code should not rely on them — pass
- * `projectId` to {@link getPublicSettingsStatus} and channel status will be
- * derived from `provider_accounts`.
- *
- * @deprecated Social token fields are scheduled for removal in PR4.
+ * Operator-scoped AI configuration (per-operator) — channel tokens live in
+ * project-scoped `provider_accounts`, not here. The PR4 hard cutover removed
+ * the legacy `app_settings` social token paste path entirely; OAuth is now
+ * the only way to connect a channel.
  */
-export type AppSettings = {
-  xAccessToken?: string
-  xRefreshToken?: string
-  linkedinAccessToken?: string
-  linkedinAuthorUrn?: string
-  linkedinApiVersion?: string
-}
-
 export type OperatorAiSettings = {
   activeAiBackendType: AiBackendType | null
   openaiApiKey?: string
@@ -34,6 +21,9 @@ export type OperatorAiSettings = {
   codexVerifiedAt?: string | null
 }
 
+/** Back-compat alias for code that still imports `AppSettings`. */
+export type AppSettings = OperatorAiSettings
+
 export type PublicSettingsStatus = {
   modelConfigured: boolean
   activeAiBackendType: AiBackendType | null
@@ -42,34 +32,18 @@ export type PublicSettingsStatus = {
   codexReady: boolean
   codexCliEnabled: boolean
   xConfigured: boolean
-  xRefreshConfigured: boolean
   linkedinConfigured: boolean
   openaiModel?: string
   codexCliModel?: string
-  linkedinApiVersion?: string
   configuredAiBackendTypes: AiBackendType[]
 }
 
-/** @deprecated Removed in PR4 with token paste UI. */
-const legacySocialSettingKeys = [
-  'xAccessToken',
-  'xRefreshToken',
-  'linkedinAccessToken',
-  'linkedinAuthorUrn',
-  'linkedinApiVersion',
-] as const
-
-type LegacySocialSettingKey = (typeof legacySocialSettingKeys)[number]
-
 const legacyAiSettingKeys = ['aiProvider', 'openaiApiKey', 'openaiModel', 'codexCliModel'] as const
 
-export async function getAppSettings(): Promise<AppSettings & OperatorAiSettings> {
+export async function getAppSettings(): Promise<OperatorAiSettings> {
   const session = await readOperatorSession()
   const operatorId = session?.operatorId
-  const social = await getLegacySocialAppSettings()
-  const ai = operatorId ? await getOperatorAiSettings(operatorId) : emptyOperatorAiSettings()
-
-  return { ...social, ...ai }
+  return operatorId ? getOperatorAiSettings(operatorId) : emptyOperatorAiSettings()
 }
 
 export async function getOperatorAiSettings(operatorId: string): Promise<OperatorAiSettings> {
@@ -157,11 +131,9 @@ export async function getPublicSettingsStatus(options?: {
     codexReady,
     codexCliEnabled: activeAiBackendType === 'codexCli',
     xConfigured: channelStatus.xConfigured,
-    xRefreshConfigured: Boolean(settings.xRefreshToken),
     linkedinConfigured: channelStatus.linkedinConfigured,
     openaiModel: settings.openaiModel,
     codexCliModel: settings.codexCliModel,
-    linkedinApiVersion: settings.linkedinApiVersion,
     configuredAiBackendTypes,
   }
 }
@@ -179,28 +151,6 @@ async function getProjectChannelStatus(projectId: string | null) {
   return {
     xConfigured: Boolean(x),
     linkedinConfigured: Boolean(linkedin),
-  }
-}
-
-/** @deprecated Use OAuth flows + `upsertProviderAccount` (PR3/PR5). */
-export async function saveAppSettings(settings: AppSettings) {
-  const db = getDb()
-  for (const key of legacySocialSettingKeys) {
-    const value = settings[key]
-    if (value === undefined) continue
-
-    if (value.trim() === '') {
-      await db.query('delete from app_settings where key = $1', [key])
-      continue
-    }
-
-    await db.query(
-      `insert into app_settings (key, value_ciphertext, updated_at)
-       values ($1, $2, now())
-       on conflict (key)
-       do update set value_ciphertext = excluded.value_ciphertext, updated_at = now()`,
-      [key, encryptSecret(value.trim())],
-    )
   }
 }
 
@@ -285,20 +235,6 @@ export function getGenerationAiConfig(settings: AppSettings & OperatorAiSettings
   }
 }
 
-async function getLegacySocialAppSettings(): Promise<AppSettings> {
-  const result = await getDb().query<{ key: string; value_ciphertext: string }>(
-    'select key, value_ciphertext from app_settings',
-  )
-  const settings: AppSettings = {}
-
-  for (const row of result.rows) {
-    if (!isLegacySocialSettingKey(row.key)) continue
-    settings[row.key] = decryptSecret(row.value_ciphertext)
-  }
-
-  return settings
-}
-
 async function ensureOperatorSettingsRow(operatorId: string) {
   await getDb().query(
     `insert into operator_settings (operator_id)
@@ -361,8 +297,4 @@ function emptyOperatorAiSettings(): OperatorAiSettings {
   return {
     activeAiBackendType: null,
   }
-}
-
-function isLegacySocialSettingKey(key: string): key is LegacySocialSettingKey {
-  return (legacySocialSettingKeys as readonly string[]).includes(key)
 }
