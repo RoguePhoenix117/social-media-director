@@ -8,7 +8,11 @@ import { validateProviderPayload } from '../lib/domain/validation'
 import { importPublicBlogUrl } from '../lib/import/public-url'
 import { logError, logInfo } from '../lib/server/logger'
 import { requireOperatorSession } from '../lib/server/session'
-import { getAppSettings, getPublicSettingsStatus } from '../lib/server/settings'
+import {
+  getAppSettings,
+  getGenerationAiConfig,
+  getPublicSettingsStatus,
+} from '../lib/server/settings'
 
 const promptGenerationInputSchema = z.object({
   prompt: z.string().min(1, 'Enter a prompt or URL before generating.'),
@@ -33,6 +37,7 @@ const generatePostDrafts = createServerFn({ method: 'POST' })
         hasIntentPrompt: Boolean(intentPrompt),
       })
       const settings = await getAppSettings()
+      const generationConfig = getGenerationAiConfig(settings)
       const publicSettings = await getPublicSettingsStatus()
       const targetProviders = getPostGenerationProviders(publicSettings)
       const source = sourceUrl
@@ -52,10 +57,7 @@ const generatePostDrafts = createServerFn({ method: 'POST' })
           intentPrompt,
         },
         {
-          aiProvider: settings.aiProvider,
-          openaiApiKey: settings.openaiApiKey,
-          openaiModel: settings.openaiModel,
-          codexCliModel: settings.codexCliModel,
+          ...generationConfig,
           targetProviders,
         },
       )

@@ -7,6 +7,10 @@ const connectionErrorCodes = new Set([
 ])
 
 export function isDatabaseConnectionError(error: Error) {
+  if (/timed out|timeout/i.test(error.message)) {
+    return true
+  }
+
   if ('code' in error && typeof error.code === 'string') {
     return connectionErrorCodes.has(error.code)
   }

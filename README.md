@@ -52,6 +52,13 @@ database from scratch and rerun all migrations:
 pnpm db:reset
 ```
 
+To clear all operators, sessions, settings, and posts but keep the existing schema
+(Postgres container and migrations unchanged):
+
+```bash
+pnpm db:wipe
+```
+
 Use `pnpm db:logs` to watch Postgres startup and migration output, and `pnpm db:down`
 to stop the container while keeping the local database volume.
 
@@ -62,6 +69,25 @@ On first launch, the app shows a resumable onboarding wizard:
 
 1. Create the local operator account.
 2. Optionally add an OpenAI API key from `https://platform.openai.com/api-keys`.
-3. Optionally add X credentials from `https://developer.x.com/` and LinkedIn credentials from `https://www.linkedin.com/developers/`.
+3. Optionally add X publishing credentials (separate save).
+4. Optionally add LinkedIn publishing credentials (separate save; completes onboarding).
+
+Credentials are stored encrypted in Postgres—not in `.env`. Apply `migrations/0004_x_linkedin_onboarding_steps.sql` if upgrading an existing database (Docker init runs new migrations on a fresh volume only).
 
 Each step saves independently. If setup is interrupted, log in again and the dashboard shows the next unfinished step. Secrets are encrypted before being stored in Postgres.
+
+### X (Twitter) publishing credentials
+
+Sign in at [developer.x.com](https://developer.x.com/en/portal/dashboard) (the same portal as console.x.com), create a **Project** and **App**, then open **User authentication settings**. Select **Read and write**, choose **Web App, Automated App or Bot**, and fill the required **Callback URI** and **Website URL** (for local dev, `http://127.0.0.1:5173/` works) before **Save Changes** enables.
+
+The three values on the main **Keys and tokens** tab are **not** what you paste into this app:
+
+| X Developer Portal label | Paste into Social Media Director? |
+| --- | --- |
+| API Key (Consumer Key) | No — OAuth Client ID only |
+| API Key Secret (Consumer Secret) | No — OAuth Client Secret only |
+| Bearer Token (top of page) | No — app-only token, cannot post as you |
+| **Access Token** under **Authentication Tokens → Access Token and Secret → Generate** | **Yes** — paste as **X user access token** in Settings |
+| **Refresh Token** (when **Include refresh token** / `offline.access` is enabled) | **Yes** — paste as **X refresh token** in Settings (optional but recommended) |
+
+Publishing calls `POST https://api.x.com/2/tweets` with the user access token as a Bearer token. The refresh token is stored for future automatic renewal (not used by publish yet). See **Settings → X publishing** for the in-app tutorial and mapping table.

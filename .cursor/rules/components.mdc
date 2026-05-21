@@ -1,0 +1,39 @@
+---
+description: React components — self-contained, reusable, composable
+globs: app/components/**/*.tsx
+alwaysApply: false
+---
+
+# Components
+
+## Self-contained
+
+Each component file owns its markup, local state, and colocated types. Accept data via props; emit via callbacks. Parent handles server calls.
+
+## Reuse hierarchy
+
+1. Existing `app/components/*` (e.g. `PasswordInput`, `PlatformIcon`, `DebouncedFieldErrors`)
+2. Compose smaller local subcomponents in `app/components/{feature}/`
+3. New shared primitive only when used in 2+ features
+
+## Do not duplicate
+
+- Field errors → `DebouncedFieldErrors`
+- Password fields → `PasswordInput`
+- Platform icons → `PlatformIcon`
+- Layout chrome → `AppLayout`
+- AI setup UI → `AiWorkspace`
+
+## File structure (feature folder)
+
+```
+app/components/connect-channels/
+  connect-channels-modal.tsx   # primary export
+  channel-tile.tsx
+  connected-channel-card.tsx
+  index.ts                     # barrel re-export (optional)
+```
+
+## Size
+
+Split when a file exceeds ~200 lines or mixes unrelated concerns (e.g. modal + form + guide in one file).

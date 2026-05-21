@@ -1,0 +1,49 @@
+---
+description: Core code organization — thin routes, reuse, discover-before-create (RAG)
+alwaysApply: true
+---
+
+# Code organization
+
+## Discover before you create (RAG)
+
+Before adding a component, hook, server module, or schema:
+
+1. Read `docs/CODE_INDEX.md` and search the codebase (`app/components/`, `app/lib/`, `app/server/`).
+2. Reuse or extend existing code; do not duplicate UI, API wrappers, or providers.
+3. If something is missing, add it in the **canonical location** and update `docs/CODE_INDEX.md`.
+
+## Line budgets (soft limits)
+
+| Layer | Target | If exceeded |
+|-------|--------|---------------|
+| `app/routes/*.tsx` | ≤150 lines | Extract to `app/components/` or `app/features/{name}/` |
+| `app/components/*.tsx` | ≤200 lines | Split subcomponents into same folder |
+| `app/server/*.ts` | ≤80 lines | Move logic to `app/lib/server/` |
+| Route inline `createServerFn` | 0 preferred | Define in `app/server/{domain}.ts` |
+
+Exceptions: generated files, thin re-exports, and legacy files under active refactor (note in PR).
+
+## Layer responsibilities
+
+```
+routes/     → compose UI, wire loaders, no business logic
+components/ → self-contained UI; props in, events out
+features/   → route-specific bundles (optional): {components,hooks,schemas}.ts
+server/     → createServerFn entrypoints only
+lib/server/ → DB, OAuth, crypto, domain services
+lib/        → schemas, queries, pure helpers, providers
+```
+
+## Self-contained components
+
+- One primary export per file; colocate types unless shared.
+- No fetching inside presentational components — use route loader, hook, or parent.
+- Shared UI: `app/components/`. Feature-only UI: `app/features/{feature}/components/`.
+
+## Reuse checklist (every PR)
+
+- [ ] Searched for existing component/hook/server fn
+- [ ] Route file stays compositional (imports + JSX)
+- [ ] No duplicate zod schemas (use `app/lib/*-schemas.ts`)
+- [ ] Updated `docs/CODE_INDEX.md` if new canonical module added

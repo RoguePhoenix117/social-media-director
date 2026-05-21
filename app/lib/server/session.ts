@@ -12,6 +12,7 @@ export type OperatorSession = {
   email: string
   firstName: string | null
   onboardingStepCompleted: number
+  onboardingDismissed: boolean
 }
 
 export async function createOperatorSession(operatorId: string) {
@@ -36,7 +37,8 @@ export async function readOperatorSession(): Promise<OperatorSession | null> {
        operators.id as "operatorId",
        operators.email,
        operators.first_name as "firstName",
-       operators.onboarding_step_completed as "onboardingStepCompleted"
+       operators.onboarding_step_completed as "onboardingStepCompleted",
+       (operators.onboarding_dismissed_at is not null) as "onboardingDismissed"
      from operator_sessions
      join operators on operators.id = operator_sessions.operator_id
      where operator_sessions.token_hash = $1

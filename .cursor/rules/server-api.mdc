@@ -1,0 +1,33 @@
+---
+description: Server functions and API layer — thin handlers, shared lib
+globs: app/server/**/*.ts,app/lib/server/**/*.ts
+alwaysApply: false
+---
+
+# Server & API layer
+
+## Split
+
+| Location | Purpose |
+|----------|---------|
+| `app/server/{domain}.ts` | `createServerFn` — validate input, call lib, return DTO |
+| `app/lib/server/{domain}.ts` | Business logic, DB, OAuth, encryption |
+| `app/lib/*-schemas.ts` | Zod input/output schemas (shared client + server) |
+| `app/lib/bootstrap-query.ts`, `app/lib/query.ts` | React Query options wrapping server fns |
+
+## Rules
+
+- One domain per server file (`dashboard.ts`, `setup.ts`, `projects.ts`, `channels.ts`).
+- Never define the same server fn in a route file.
+- OAuth token exchange, PKCE, profile fetch → `app/lib/server/oauth/`.
+- DB access → `app/lib/server/` or `app/lib/db/repository.ts`; not in components.
+
+## Client usage
+
+```tsx
+// Hook server fn once at component top
+const saveFn = useServerFn(saveProject)
+// Or use queryOptions from app/lib/*-query.ts
+```
+
+Do not inline `fetch()` to internal APIs when a server fn exists.

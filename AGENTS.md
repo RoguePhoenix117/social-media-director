@@ -1,5 +1,16 @@
 # Agent Guidance
 
+## Code organization (required)
+
+Before creating files, read `docs/CODE_INDEX.md` and search for existing modules. Rules in `.cursor/rules/` enforce:
+
+- **Thin routes** (≤150 lines) — compose components; no inline server fns or wizards
+- **Self-contained components** — reuse `app/components/*`; split files >200 lines
+- **Thin server entrypoints** — logic in `app/lib/server/`; one domain per `app/server/*.ts`
+- **Discover before create** — extend canonical modules; update `docs/CODE_INDEX.md` when adding new ones
+
+Domain language: `CONTEXT.md`. Architecture decisions: `docs/adr/`. OAuth/projects work: `plan.md`.
+
 Use TanStack Intent before changing TanStack Start or Router code. Intent discovers the versioned skills shipped by installed packages.
 
 <!-- intent-skills:start -->

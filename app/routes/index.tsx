@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
-import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createServerFn, useServerFn } from '@tanstack/react-start'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useServerFn } from '@tanstack/react-start'
 import {
   BookOpen,
   Bot,
@@ -21,352 +21,53 @@ import {
   X as XIcon,
 } from 'lucide-react'
 import { useState } from 'react'
-import { z } from 'zod'
+import type { z } from 'zod'
+import { ActiveAiBackendControl } from '../components/active-ai-backend-control'
+import { AiWorkspace } from '../components/ai-workspace'
 import { AppLayout } from '../components/app-layout'
+import { DebouncedFieldErrors } from '../components/debounced-field-errors'
+import { PasswordInput } from '../components/password-input'
 import { PlatformIcon } from '../components/platform-icons'
-import { generateProviderVariants } from '../lib/ai/generate-variants'
-import { bootstrapQueryKey } from '../lib/bootstrap-query'
-import { getDb } from '../lib/db/client'
+import { XApiGuide, XCredentialMappingTable } from '../components/x-api-guide'
+import {
+  bootstrapQueryKey,
+  bootstrapQueryOptions,
+  type BootstrapState,
+} from '../lib/bootstrap-query'
+import { PASSWORD_MIN_LENGTH } from '../lib/password-schema'
+import {
+  accountStepFormSchema,
+  accountStepInputSchema,
+  importFormSchema,
+  linkedinStepFormSchema,
+  linkedinStepInputSchema,
+  loginInputSchema,
+  xStepFormSchema,
+  xStepInputSchema,
+} from '../lib/dashboard-schemas'
 import { isDatabaseConnectionError } from '../lib/db/errors'
 import type { ProviderVariant } from '../lib/domain/providers'
 import { validateProviderPayload } from '../lib/domain/validation'
-import { importPublicBlogUrl } from '../lib/import/public-url'
-import { getProviderAdapter } from '../lib/providers'
-import { hashPassword, verifyPassword } from '../lib/server/crypto'
-import { logError, logInfo } from '../lib/server/logger'
+import type { CodexCliStatus } from '../lib/server/codex-cli'
+import type { PublicSettingsStatus } from '../lib/server/settings'
 import {
-  createOperatorSession,
-  destroyCurrentSession,
-  readOperatorSession,
-  requireOperatorSession,
-} from '../lib/server/session'
-import {
-  getAppSettings,
-  getPublicSettingsStatus,
-  saveAppSettings,
-  type PublicSettingsStatus,
-} from '../lib/server/settings'
-
-const importInputSchema = z.object({
-  url: z.string().url(),
-  intentPrompt: z.string().optional(),
-})
-const importFormSchema = importInputSchema.extend({
-  intentPrompt: z.string(),
-})
-
-const loginInputSchema = z.object({
-  email: z.string().email('Enter the email for your operator account.'),
-  password: z.string().min(1, 'Enter your password.'),
-})
-
-const accountStepInputSchema = z.object({
-  email: z.string().email('Enter a valid email address.'),
-  password: z
-    .string()
-    .min(12, 'Use at least 12 characters.')
-    .regex(/[A-Za-z]/, 'Include at least one letter.')
-    .regex(/[0-9]/, 'Include at least one number.'),
-  firstName: z.string().optional(),
-})
-const accountStepFormSchema = accountStepInputSchema.extend({
-  firstName: z.string(),
-})
-
-const modelStepInputSchema = z.object({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']).optional(),
-  openaiApiKey: z.string().optional(),
-  openaiModel: z.string().min(1).default('gpt-4.1-mini'),
-  codexCliModel: z.string().optional(),
-})
-const modelStepFormSchema = modelStepInputSchema.extend({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']),
-  openaiApiKey: z.string(),
-  openaiModel: z.string().min(1),
-  codexCliModel: z.string(),
-})
-
-const socialStepInputSchema = z.object({
-  xAccessToken: z.string().optional(),
-  linkedinAccessToken: z.string().optional(),
-  linkedinAuthorUrn: z.string().optional(),
-  linkedinApiVersion: z.string().optional(),
-})
-const socialStepFormSchema = z.object({
-  xAccessToken: z.string(),
-  linkedinAccessToken: z.string(),
-  linkedinAuthorUrn: z.string(),
-  linkedinApiVersion: z.string(),
-})
-
-const settingsInputSchema = z.object({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']).optional(),
-  openaiApiKey: z.string().optional(),
-  openaiModel: z.string().optional(),
-  codexCliModel: z.string().optional(),
-  xAccessToken: z.string().optional(),
-  linkedinAccessToken: z.string().optional(),
-  linkedinAuthorUrn: z.string().optional(),
-  linkedinApiVersion: z.string().optional(),
-})
-const settingsFormSchema = z.object({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']),
-  openaiApiKey: z.string(),
-  openaiModel: z.string(),
-  codexCliModel: z.string(),
-  xAccessToken: z.string(),
-  linkedinAccessToken: z.string(),
-  linkedinAuthorUrn: z.string(),
-  linkedinApiVersion: z.string(),
-})
-
-const publishInputSchema = z.object({
-  provider: z.enum(['x', 'linkedin']),
-  text: z.string().min(1),
-  linkUrl: z.string().url().optional(),
-  imageUrl: z.string().url().optional(),
-})
-
-const getBootstrapState = createServerFn({ method: 'GET' }).handler(async () => {
-  let operatorCount
-
-  try {
-    operatorCount = await getDb().query<{ count: string }>(
-      'select count(*)::text as count from operators',
-    )
-  } catch (caught) {
-    if (caught instanceof Error && isDatabaseConnectionError(caught)) {
-      return {
-        databaseAvailable: false,
-        hasOperator: false,
-        isAuthenticated: false,
-        operatorEmail: undefined,
-        operatorFirstName: undefined,
-        onboardingStepCompleted: 0,
-        settings: null,
-      }
-    }
-
-    throw caught
-  }
-
-  const hasOperator = Number(operatorCount.rows[0]?.count ?? '0') > 0
-  const session = hasOperator ? await readOperatorSession() : null
-  const settings = hasOperator && session ? await getPublicSettingsStatus() : null
-
-  return {
-    databaseAvailable: true,
-    hasOperator,
-    isAuthenticated: Boolean(session),
-    operatorEmail: session?.email,
-    operatorFirstName: session?.firstName,
-    onboardingStepCompleted: session?.onboardingStepCompleted ?? 0,
-    settings,
-  }
-})
-
-function bootstrapQueryOptions() {
-  return queryOptions({
-    queryKey: bootstrapQueryKey,
-    queryFn: () => getBootstrapState(),
-    staleTime: 30_000,
-  })
-}
-
-const saveAccountStep = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => accountStepInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const operatorCount = await getDb().query<{ count: string }>(
-      'select count(*)::text as count from operators',
-    )
-    if (Number(operatorCount.rows[0]?.count ?? '0') > 0) {
-      throw new Error('Onboarding is already complete.')
-    }
-
-    const passwordHash = await hashPassword(data.password)
-    const operator = await getDb().query<{ id: string }>(
-      `insert into operators
-        (email, first_name, password_hash, onboarding_step_completed)
-       values ($1, $2, $3, 1)
-       returning id`,
-      [data.email.toLowerCase(), data.firstName?.trim() || null, passwordHash],
-    )
-
-    await createOperatorSession(operator.rows[0]!.id)
-    return {
-      settings: await getPublicSettingsStatus(),
-      onboardingStepCompleted: 1,
-    }
-  })
-
-const saveModelStep = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => modelStepInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const session = await requireOperatorSession()
-    await saveAppSettings({
-      aiProvider: data.aiProvider ?? 'openaiApiKey',
-      openaiApiKey: data.openaiApiKey,
-      openaiModel: data.openaiModel,
-      codexCliModel: data.codexCliModel,
-    })
-    await getDb().query(
-      `update operators
-       set onboarding_step_completed = greatest(onboarding_step_completed, 2)
-       where id = $1`,
-      [session.operatorId],
-    )
-    return {
-      settings: await getPublicSettingsStatus(),
-      onboardingStepCompleted: 2,
-    }
-  })
-
-const saveSocialStep = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => socialStepInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const session = await requireOperatorSession()
-    await saveAppSettings({
-      xAccessToken: data.xAccessToken,
-      linkedinAccessToken: data.linkedinAccessToken,
-      linkedinAuthorUrn: data.linkedinAuthorUrn,
-      linkedinApiVersion: data.linkedinApiVersion || '202604',
-    })
-    await getDb().query(
-      `update operators
-       set onboarding_step_completed = 3,
-           onboarding_completed_at = coalesce(onboarding_completed_at, now())
-       where id = $1`,
-      [session.operatorId],
-    )
-    return {
-      settings: await getPublicSettingsStatus(),
-      onboardingStepCompleted: 3,
-    }
-  })
-
-const loginOperator = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => loginInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const operator = await getDb().query<{ id: string; password_hash: string }>(
-      'select id, password_hash from operators where email = $1 limit 1',
-      [data.email.toLowerCase()],
-    )
-    const row = operator.rows[0]
-    const ok = row ? await verifyPassword(data.password, row.password_hash) : false
-    if (!ok || !row) throw new Error('Invalid email or password.')
-
-    await getDb().query('delete from operator_sessions where operator_id = $1', [row.id])
-    await createOperatorSession(row.id)
-    const settings = await getPublicSettingsStatus()
-    const session = await readOperatorSession()
-    return {
-      settings,
-      firstName: session?.firstName,
-      onboardingStepCompleted: session?.onboardingStepCompleted ?? 0,
-    }
-  })
-
-const logoutOperator = createServerFn({ method: 'POST' }).handler(async () => {
-  await destroyCurrentSession()
-  return { ok: true }
-})
-
-const saveSettings = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => settingsInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    await requireOperatorSession()
-    await saveAppSettings(data)
-    return getPublicSettingsStatus()
-  })
-
-const importAndGenerate = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => importInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const startedAt = Date.now()
-    try {
-      await requireOperatorSession()
-      logInfo('import_generate.start', {
-        url: data.url,
-        hasIntentPrompt: Boolean(data.intentPrompt?.trim()),
-      })
-      const settings = await getAppSettings()
-      logInfo('import_generate.settings_loaded', {
-        aiProvider: settings.aiProvider ?? 'openaiApiKey',
-        hasOpenAiKey: Boolean(settings.openaiApiKey),
-        openaiModel: settings.openaiModel,
-        codexCliModel: settings.codexCliModel,
-      })
-      const source = await importPublicBlogUrl(data.url)
-      logInfo('import_generate.source_imported', {
-        canonicalUrl: source.canonicalUrl,
-        hasImage: Boolean(source.imageUrl),
-      })
-      const variants = await generateProviderVariants(
-        {
-          source,
-          intentPrompt: data.intentPrompt,
-        },
-        {
-          aiProvider: settings.aiProvider,
-          openaiApiKey: settings.openaiApiKey,
-          openaiModel: settings.openaiModel,
-          codexCliModel: settings.codexCliModel,
-        },
-      )
-      logInfo('import_generate.success', {
-        durationMs: Date.now() - startedAt,
-        variantCount: variants.length,
-      })
-
-      return {
-        source,
-        variants: variants.map((variant) => ({
-          ...variant,
-          validation: validateProviderPayload(variant.provider, variant),
-        })),
-      }
-    } catch (error) {
-      logError('import_generate.failure', error, {
-        durationMs: Date.now() - startedAt,
-      })
-      throw error
-    }
-  })
-
-const publishVariant = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => publishInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    await requireOperatorSession()
-    const settings = await getAppSettings()
-    const adapter = getProviderAdapter(data.provider, {
-      linkedinAuthorUrn: settings.linkedinAuthorUrn,
-      linkedinApiVersion: settings.linkedinApiVersion,
-    })
-    const token = data.provider === 'x' ? settings.xAccessToken : settings.linkedinAccessToken
-
-    if (!token) {
-      throw new Error(`${data.provider === 'x' ? 'X' : 'LinkedIn'} credentials are not configured.`)
-    }
-
-    if (data.provider === 'linkedin' && !settings.linkedinAuthorUrn) {
-      throw new Error('LinkedIn author URN is not configured.')
-    }
-
-    const result = await adapter.publish(data, token)
-    return {
-      providerPostId: result.providerPostId,
-      providerPostUrl: result.providerPostUrl,
-    }
-  })
+  advanceModelStep,
+  dismissOnboardingWizard,
+  importAndGenerate,
+  loginOperator,
+  logoutOperator,
+  publishVariant,
+  saveAccountStep,
+  saveLinkedInStep,
+  saveXStep,
+  type ImportResult,
+} from '../server/dashboard'
 
 export const Route = createFileRoute('/')({
   loader: ({ context }) => context.queryClient.ensureQueryData(bootstrapQueryOptions()),
   component: Dashboard,
   errorComponent: DashboardError,
 })
-
-type BootstrapState = Awaited<ReturnType<typeof getBootstrapState>>
-type ImportResult = Awaited<ReturnType<typeof importAndGenerate>>
 
 const linkedinGuideSteps = [
   {
@@ -463,6 +164,9 @@ function DatabaseSetupScreen({ onRetry }: Readonly<{ onRetry: () => void }>) {
           <code>psql "$DATABASE_URL" -f migrations/0001_initial.sql</code>
           <code>psql "$DATABASE_URL" -f migrations/0002_onboarding.sql</code>
           <code>psql "$DATABASE_URL" -f migrations/0003_stepwise_onboarding.sql</code>
+          <code>psql "$DATABASE_URL" -f migrations/0004_x_linkedin_onboarding_steps.sql</code>
+          <code>psql "$DATABASE_URL" -f migrations/0005_onboarding_dismissed.sql</code>
+          <code>psql "$DATABASE_URL" -f migrations/0006_operator_ai_settings.sql</code>
         </div>
         <button onClick={onRetry} type="button">
           Retry connection
@@ -479,11 +183,15 @@ function getProviderLabel(provider: ProviderVariant['provider']) {
 function aiModelStatusValue(settings: PublicSettingsStatus | null) {
   if (!settings?.modelConfigured) return 'Missing'
 
-  if (settings.aiProvider === 'codexCli') {
-    return `Ready: Codex CLI / ${settings.codexCliModel ?? 'gpt-5.2'}`
+  if (settings.activeAiBackendType === 'codexCli') {
+    return `Ready: Codex CLI / ${settings.codexCliModel ?? 'model'}`
   }
 
-  return `Ready: OpenAI API / ${settings.openaiModel ?? 'gpt-4.1-mini'}`
+  if (settings.activeAiBackendType === 'openaiApiKey') {
+    return `Ready: OpenAI API / ${settings.openaiModel ?? 'model'}`
+  }
+
+  return 'Configured'
 }
 
 function FieldErrors({ errors }: Readonly<{ errors: Array<unknown> }>) {
@@ -518,11 +226,12 @@ function Dashboard() {
   const importAndGenerateFn = useServerFn(importAndGenerate)
   const publishVariantFn = useServerFn(publishVariant)
   const saveAccountStepFn = useServerFn(saveAccountStep)
-  const saveModelStepFn = useServerFn(saveModelStep)
-  const saveSocialStepFn = useServerFn(saveSocialStep)
+  const advanceModelStepFn = useServerFn(advanceModelStep)
+  const saveXStepFn = useServerFn(saveXStep)
+  const saveLinkedInStepFn = useServerFn(saveLinkedInStep)
+  const dismissOnboardingWizardFn = useServerFn(dismissOnboardingWizard)
   const loginOperatorFn = useServerFn(loginOperator)
   const logoutOperatorFn = useServerFn(logoutOperator)
-  const saveSettingsFn = useServerFn(saveSettings)
 
   const [result, setResult] = useState<ImportResult | undefined>()
   const [variants, setVariants] = useState<ProviderVariant[]>([])
@@ -554,11 +263,15 @@ function Dashboard() {
       setGenerationStatus('Importing the source URL...')
 
       try {
-        const providerLabel = authState.settings?.aiProvider === 'codexCli'
-          ? 'Codex CLI'
-          : authState.settings?.modelConfigured
-            ? 'OpenAI API'
-            : 'fallback templates'
+        const activeBackend = authState.settings?.activeAiBackendType
+        const providerLabel =
+          activeBackend === 'codexCli'
+            ? 'Codex CLI'
+            : activeBackend === 'openaiApiKey'
+              ? 'OpenAI API'
+              : authState.settings?.modelConfigured
+                ? 'configured AI'
+                : 'fallback templates'
         setGenerationStatus(`Generating drafts with ${providerLabel}. This can take a minute.`)
         const nextResult = await importAndGenerateFn({
           data: { url: value.url, intentPrompt: value.intentPrompt || undefined },
@@ -583,6 +296,7 @@ function Dashboard() {
   if (!authState.hasOperator) {
     return (
       <OnboardingWizard
+        codexCli={authState.codexCli}
         mode="first-run"
         onboardingStepCompleted={0}
         settings={null}
@@ -595,11 +309,28 @@ function Dashboard() {
             operatorEmail: data.email.toLowerCase(),
             operatorFirstName: data.firstName ? data.firstName : null,
             onboardingStepCompleted: result.onboardingStepCompleted,
+            onboardingDismissed: false,
             settings: result.settings,
+            codexCli: result.codexCli,
           })
         }}
-        onModelSave={async (data) => {
-          const result = await saveModelStepFn({ data })
+        onModelStepComplete={async (nextSettings) => {
+          const result = await advanceModelStepFn()
+          updateBootstrapState((current) => {
+            if (!current.databaseAvailable) return current
+            return {
+              ...current,
+              onboardingStepCompleted: result.onboardingStepCompleted,
+              settings: nextSettings ?? result.settings,
+            }
+          })
+          return {
+            ...result,
+            settings: nextSettings ?? result.settings,
+          }
+        }}
+        onXSave={async (data) => {
+          const result = await saveXStepFn({ data })
           updateBootstrapState((current) => {
             if (!current.databaseAvailable) return current
             return {
@@ -609,8 +340,8 @@ function Dashboard() {
             }
           })
         }}
-        onSocialSave={async (data) => {
-          const result = await saveSocialStepFn({ data })
+        onLinkedInSave={async (data) => {
+          const result = await saveLinkedInStepFn({ data })
           updateBootstrapState((current) => {
             if (!current.databaseAvailable) return current
             return {
@@ -636,7 +367,9 @@ function Dashboard() {
             operatorEmail: data.email.toLowerCase(),
             operatorFirstName: result.firstName,
             onboardingStepCompleted: result.onboardingStepCompleted,
+            onboardingDismissed: result.onboardingDismissed,
             settings: result.settings,
+            codexCli: result.codexCli,
           })
         }}
       />
@@ -681,7 +414,9 @@ function Dashboard() {
       operatorEmail: undefined,
       operatorFirstName: undefined,
       onboardingStepCompleted: 0,
+      onboardingDismissed: false,
       settings: null,
+      codexCli: null,
     })
   }
 
@@ -702,12 +437,22 @@ function Dashboard() {
       value: authState.settings?.xConfigured ? 'Connected' : 'Not connected',
       isReady: Boolean(authState.settings?.xConfigured),
       icon: Send,
+      action: {
+        label: 'X settings',
+        to: '/settings',
+        hash: 'x-publishing',
+      },
     },
     {
       label: 'LinkedIn',
       value: authState.settings?.linkedinConfigured ? 'Connected' : 'Not connected',
       isReady: Boolean(authState.settings?.linkedinConfigured),
       icon: Link2,
+      action: {
+        label: 'LinkedIn settings',
+        to: '/settings',
+        hash: 'linkedin-publishing',
+      },
     },
     {
       label: 'Drafts generated',
@@ -754,7 +499,7 @@ function Dashboard() {
                 </div>
                 {action ? (
                   <Link
-                    aria-label="Open AI model settings"
+                    aria-label={action.label}
                     className="stat-card-action"
                     hash={action.hash}
                     to={action.to}
@@ -768,13 +513,36 @@ function Dashboard() {
           })}
         </section>
 
-      {authState.onboardingStepCompleted < 3 ? (
+      {authState.onboardingStepCompleted < 4 && !authState.onboardingDismissed ? (
         <OnboardingWizard
+          codexCli={authState.codexCli}
           mode="resume"
           onboardingStepCompleted={authState.onboardingStepCompleted}
           settings={authState.settings}
-          onModelSave={async (data) => {
-            const result = await saveModelStepFn({ data })
+          onDismiss={async () => {
+            await dismissOnboardingWizardFn()
+            updateBootstrapState((current) => {
+              if (!current.databaseAvailable) return current
+              return { ...current, onboardingDismissed: true }
+            })
+          }}
+          onModelStepComplete={async (nextSettings) => {
+            const result = await advanceModelStepFn()
+            updateBootstrapState((current) => {
+              if (!current.databaseAvailable) return current
+              return {
+                ...current,
+                onboardingStepCompleted: result.onboardingStepCompleted,
+                settings: nextSettings ?? result.settings,
+              }
+            })
+            return {
+              ...result,
+              settings: nextSettings ?? result.settings,
+            }
+          }}
+          onXSave={async (data) => {
+            const result = await saveXStepFn({ data })
             updateBootstrapState((current) => {
               if (!current.databaseAvailable) return current
               return {
@@ -784,8 +552,8 @@ function Dashboard() {
               }
             })
           }}
-          onSocialSave={async (data) => {
-            const result = await saveSocialStepFn({ data })
+          onLinkedInSave={async (data) => {
+            const result = await saveLinkedInStepFn({ data })
             updateBootstrapState((current) => {
               if (!current.databaseAvailable) return current
               return {
@@ -798,16 +566,31 @@ function Dashboard() {
         />
       ) : null}
 
-      <SettingsPanel
-        settings={authState.settings}
-        onSave={async (data) => {
-          const settings = await saveSettingsFn({ data })
-          updateBootstrapState((current) => {
-            if (!current.databaseAvailable) return current
-            return { ...current, settings }
-          })
-        }}
-      />
+      {authState.settings ? (
+        authState.settings.configuredAiBackendTypes.length > 0 ? (
+          <ActiveAiBackendControl
+            onChange={(nextSettings) => {
+              updateBootstrapState((current) => {
+                if (!current.databaseAvailable) return current
+                return { ...current, settings: nextSettings }
+              })
+            }}
+            settings={authState.settings}
+          />
+        ) : (
+          <AiWorkspace
+            codexCli={authState.codexCli}
+            compactIntro
+            onSaved={(nextSettings) => {
+              updateBootstrapState((current) => {
+                if (!current.databaseAvailable) return current
+                return { ...current, settings: nextSettings }
+              })
+            }}
+            settings={authState.settings}
+          />
+        )
+      ) : null}
 
       <section className="workspace" id="workspace">
         <form
@@ -950,43 +733,121 @@ function Dashboard() {
   )
 }
 
+const onboardingWizardSteps = [
+  { id: 1, label: 'Account', firstRunOnly: true },
+  { id: 2, label: 'Model' },
+  { id: 3, label: 'X' },
+  { id: 4, label: 'LinkedIn' },
+] as const
+
+function isOnboardingStepConfigured(
+  stepId: number,
+  settings: PublicSettingsStatus | null,
+  onboardingStepCompleted: number,
+) {
+  switch (stepId) {
+    case 1:
+      return onboardingStepCompleted >= 1
+    case 2:
+      return Boolean(settings?.modelConfigured)
+    case 3:
+      return Boolean(settings?.xConfigured)
+    case 4:
+      return Boolean(settings?.linkedinConfigured)
+    default:
+      return false
+  }
+}
+
+function getOnboardingStepIndicatorClass(
+  stepId: number,
+  currentStep: number,
+  settings: PublicSettingsStatus | null,
+  onboardingStepCompleted: number,
+) {
+  if (currentStep === stepId) return 'active'
+  if (isOnboardingStepConfigured(stepId, settings, onboardingStepCompleted)) return 'done'
+  if (onboardingStepCompleted >= stepId) return 'skipped'
+  return ''
+}
+
+function canVisitOnboardingStep(
+  target: number,
+  mode: 'first-run' | 'resume',
+  currentStep: number,
+  onboardingStepCompleted: number,
+) {
+  if (mode === 'resume') return target >= 2 && target <= 4
+  const furthest = Math.min(4, Math.max(currentStep, onboardingStepCompleted + 1))
+  return target >= 1 && target <= furthest
+}
+
+function getResumeOnboardingStep(
+  onboardingStepCompleted: number,
+  settings: PublicSettingsStatus | null,
+) {
+  if (!settings?.modelConfigured) return 2
+  if (!settings?.xConfigured) return 3
+  if (!settings?.linkedinConfigured) return 4
+  return Math.min(4, Math.max(2, onboardingStepCompleted + 1))
+}
+
 function OnboardingWizard({
   mode,
   onboardingStepCompleted,
   settings,
+  codexCli,
   onAccountSave,
-  onModelSave,
-  onSocialSave,
+  onModelStepComplete,
+  onXSave,
+  onLinkedInSave,
+  onDismiss,
 }: {
   mode: 'first-run' | 'resume'
   onboardingStepCompleted: number
   settings: PublicSettingsStatus | null
+  codexCli: CodexCliStatus | null
   onAccountSave?: (data: z.infer<typeof accountStepInputSchema>) => Promise<void>
-  onModelSave: (data: z.infer<typeof modelStepInputSchema>) => Promise<void>
-  onSocialSave: (data: z.infer<typeof socialStepInputSchema>) => Promise<void>
+  onModelStepComplete: (
+    settings?: PublicSettingsStatus,
+  ) => Promise<{
+    settings: PublicSettingsStatus
+    onboardingStepCompleted: number
+  }>
+  onXSave: (data: z.infer<typeof xStepInputSchema>) => Promise<void>
+  onLinkedInSave: (data: z.infer<typeof linkedinStepInputSchema>) => Promise<void>
+  onDismiss?: () => Promise<void>
 }) {
   const initialStep =
     mode === 'first-run'
-      ? Math.min(onboardingStepCompleted + 1, 3)
-      : Math.max(2, Math.min(onboardingStepCompleted + 1, 3))
+      ? Math.min(onboardingStepCompleted + 1, 4)
+      : getResumeOnboardingStep(onboardingStepCompleted, settings)
   const [step, setStep] = useState(initialStep)
   const [error, setError] = useState<string>()
   const [message, setMessage] = useState<string>()
+  const [showPasswordFieldErrors, setShowPasswordFieldErrors] = useState(false)
+  const [showConfirmPasswordErrors, setShowConfirmPasswordErrors] = useState(false)
   const accountForm = useForm({
     defaultValues: {
       email: '',
       password: '',
+      confirmPassword: '',
       firstName: '',
     },
     validators: {
       onChange: accountStepFormSchema,
+    },
+    onSubmitInvalid: () => {
+      setShowPasswordFieldErrors(true)
+      setShowConfirmPasswordErrors(true)
     },
     onSubmit: async ({ value }) => {
       setError(undefined)
       setMessage(undefined)
       try {
         if (!onAccountSave) throw new Error('Account setup is already complete.')
-        await onAccountSave(value)
+        const { confirmPassword: _confirmPassword, ...accountData } = value
+        await onAccountSave(accountData)
         setMessage('Account saved. You can continue setup now or come back later.')
         setStep(2)
       } catch (caught) {
@@ -994,56 +855,51 @@ function OnboardingWizard({
       }
     },
   })
-  const modelForm = useForm({
+  const xForm = useForm({
     defaultValues: {
-      aiProvider: settings?.aiProvider === 'codexCli' ? 'codexCli' : 'openaiApiKey',
-      openaiApiKey: '',
-      openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
-      codexCliModel: settings?.codexCliModel ?? 'gpt-5.2',
+      xAccessToken: '',
+      xRefreshToken: '',
     },
     validators: {
-      onChange: modelStepFormSchema,
+      onChange: xStepFormSchema,
     },
     onSubmit: async ({ value }) => {
       setError(undefined)
       setMessage(undefined)
       try {
-        await onModelSave({
-          aiProvider: value.aiProvider as 'openaiApiKey' | 'codexCli',
-          openaiApiKey: value.openaiApiKey || undefined,
-          openaiModel: value.openaiModel,
-          codexCliModel: value.codexCliModel,
+        await onXSave({
+          xAccessToken: value.xAccessToken || undefined,
+          xRefreshToken: value.xRefreshToken || undefined,
         })
-        setMessage('Model settings saved. You can continue or come back later.')
-        setStep(3)
+        setMessage('X credentials saved. Continue to LinkedIn or finish later.')
+        setStep(4)
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Model setup failed.')
+        setError(caught instanceof Error ? caught.message : 'X setup failed.')
       }
     },
   })
-  const socialForm = useForm({
+
+  const linkedinForm = useForm({
     defaultValues: {
-      xAccessToken: '',
       linkedinAccessToken: '',
       linkedinAuthorUrn: '',
       linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
     },
     validators: {
-      onChange: socialStepFormSchema,
+      onChange: linkedinStepFormSchema,
     },
     onSubmit: async ({ value }) => {
       setError(undefined)
       setMessage(undefined)
       try {
-        await onSocialSave({
-          xAccessToken: value.xAccessToken || undefined,
+        await onLinkedInSave({
           linkedinAccessToken: value.linkedinAccessToken || undefined,
           linkedinAuthorUrn: value.linkedinAuthorUrn || undefined,
           linkedinApiVersion: value.linkedinApiVersion,
         })
-        setMessage('Social integrations saved. Onboarding is complete.')
+        setMessage('LinkedIn credentials saved. Onboarding is complete.')
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Social setup failed.')
+        setError(caught instanceof Error ? caught.message : 'LinkedIn setup failed.')
       }
     },
   })
@@ -1055,44 +911,120 @@ function OnboardingWizard({
     setError(undefined)
     setMessage(undefined)
     try {
-      await onModelSave({
-        aiProvider: modelForm.state.values.aiProvider as 'openaiApiKey' | 'codexCli',
-        openaiModel: modelForm.state.values.openaiModel,
-        codexCliModel: modelForm.state.values.codexCliModel,
-      })
-      setMessage('Model step skipped. You can add an API key later in settings.')
+      await onModelStepComplete()
+      setMessage('Model step skipped. You can add an AI backend later in settings.')
       setStep(3)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Model setup failed.')
     }
   }
 
-  async function skipSocialStep() {
+  async function completeModelStepAfterSave(nextSettings: PublicSettingsStatus) {
     setError(undefined)
     setMessage(undefined)
     try {
-      await onSocialSave({ linkedinApiVersion: socialForm.state.values.linkedinApiVersion })
-      setMessage('Social step skipped. Onboarding is complete.')
+      await onModelStepComplete(nextSettings)
+      setMessage('Model settings saved. You can continue or come back later.')
+      setStep(3)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Social setup failed.')
+      setError(caught instanceof Error ? caught.message : 'Model setup failed.')
+      throw caught
+    }
+  }
+
+  async function skipXStep() {
+    setError(undefined)
+    setMessage(undefined)
+    try {
+      await onXSave({})
+      setMessage('X step skipped. Continue to LinkedIn when ready.')
+      setStep(4)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'X setup failed.')
+    }
+  }
+
+  async function skipLinkedInStep() {
+    setError(undefined)
+    setMessage(undefined)
+    try {
+      await onLinkedInSave({
+        linkedinApiVersion: linkedinForm.state.values.linkedinApiVersion,
+      })
+      setMessage('LinkedIn step skipped. Onboarding is complete.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'LinkedIn setup failed.')
+    }
+  }
+
+  async function dismissWizard() {
+    if (!onDismiss) return
+    setError(undefined)
+    setMessage(undefined)
+    try {
+      await onDismiss()
+      setMessage('Setup hidden from the dashboard. Open Settings anytime to finish connecting providers.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not dismiss setup.')
     }
   }
 
   return (
     <main className={shellClass}>
       <section className={panelClass}>
-        <p className="eyebrow">{mode === 'first-run' ? 'First run' : 'Finish setup'}</p>
-        <h1>{mode === 'first-run' ? 'Set up Social Media Director' : 'Continue onboarding'}</h1>
+        <div className="wizard-panel-top">
+          <div>
+            <p className="eyebrow">{mode === 'first-run' ? 'First run' : 'Finish setup'}</p>
+            <h1>{mode === 'first-run' ? 'Set up Social Media Director' : 'Continue onboarding'}</h1>
+          </div>
+          {mode === 'resume' && onDismiss ? (
+            <button
+              aria-label="Dismiss setup from dashboard"
+              className="icon-button wizard-dismiss"
+              onClick={() => void dismissWizard()}
+              title="Hide setup wizard"
+              type="button"
+            >
+              <XIcon aria-hidden="true" size={18} />
+            </button>
+          ) : null}
+        </div>
         <div className="stepper" aria-label="Onboarding progress">
-          <span className={step === 1 ? 'active' : onboardingStepCompleted >= 1 ? 'done' : ''}>
-            1 Account
-          </span>
-          <span className={step === 2 ? 'active' : onboardingStepCompleted >= 2 ? 'done' : ''}>
-            2 Model
-          </span>
-          <span className={step === 3 ? 'active' : onboardingStepCompleted >= 3 ? 'done' : ''}>
-            3 Social
-          </span>
+          {onboardingWizardSteps.map((wizardStep) => {
+            if ('firstRunOnly' in wizardStep && wizardStep.firstRunOnly && mode !== 'first-run') {
+              return null
+            }
+            const reachable = canVisitOnboardingStep(
+              wizardStep.id,
+              mode,
+              step,
+              onboardingStepCompleted,
+            )
+            const indicatorClass = getOnboardingStepIndicatorClass(
+              wizardStep.id,
+              step,
+              settings,
+              onboardingStepCompleted,
+            )
+
+            return (
+              <button
+                aria-current={step === wizardStep.id ? 'step' : undefined}
+                className={indicatorClass || undefined}
+                disabled={!reachable}
+                key={wizardStep.id}
+                onClick={() => {
+                  if (!reachable) return
+                  setError(undefined)
+                  setMessage(undefined)
+                  setStep(wizardStep.id)
+                }}
+                type="button"
+              >
+                {wizardStep.id} {wizardStep.label}
+              </button>
+            )
+          })}
         </div>
 
         {step === 1 && mode === 'first-run' ? (
@@ -1106,11 +1038,11 @@ function OnboardingWizard({
               Create the local operator account for this self-hosted install. This login is
               only for your dashboard and is separate from OpenAI, X, or LinkedIn.
             </p>
-            <div className="form-grid">
+            <div className="form-grid form-grid--account">
               <accountForm.Field name="email">
                 {(field) => (
-                  <label>
-                    Operator email
+                  <label className="form-field">
+                    <span className="field-label">Operator email</span>
                     <input
                       autoComplete="username"
                       name={field.name}
@@ -1121,41 +1053,90 @@ function OnboardingWizard({
                       type="email"
                       value={field.state.value}
                     />
-                    <small className="field-guidance">Use the email you want for dashboard login and recovery context.</small>
-                    <FieldErrors errors={field.state.meta.errors} />
-                  </label>
-                )}
-              </accountForm.Field>
-              <accountForm.Field name="password">
-                {(field) => (
-                  <label>
-                    Password
-                    <input
-                      autoComplete="new-password"
-                      minLength={12}
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => field.handleChange(event.target.value)}
-                      required
-                      type="password"
-                      value={field.state.value}
-                    />
-                    <small className="field-guidance">Use 12+ characters with at least one letter and one number.</small>
-                    <FieldErrors errors={field.state.meta.errors} />
+                    <div className="field-messages">
+                      <small className="field-guidance">
+                        Use the email you want for dashboard login and recovery context.
+                      </small>
+                      <FieldErrors errors={field.state.meta.errors} />
+                    </div>
                   </label>
                 )}
               </accountForm.Field>
               <accountForm.Field name="firstName">
                 {(field) => (
-                  <label>
-                    First name <span className="optional-label">Optional</span>
+                  <label className="form-field">
+                    <span className="field-label">
+                      First name <span className="optional-label">Optional</span>
+                    </span>
                     <input
                       name={field.name}
                       onBlur={field.handleBlur}
                       onChange={(event) => field.handleChange(event.target.value)}
                       value={field.state.value}
                     />
-                    <FieldErrors errors={field.state.meta.errors} />
+                    <div className="field-messages">
+                      <FieldErrors errors={field.state.meta.errors} />
+                    </div>
+                  </label>
+                )}
+              </accountForm.Field>
+              <accountForm.Field name="password">
+                {(field) => (
+                  <label className="form-field">
+                    <span className="field-label">Password</span>
+                    <PasswordInput
+                      autoComplete="new-password"
+                      name={field.name}
+                      onBlur={() => {
+                        field.handleBlur()
+                        setShowPasswordFieldErrors(true)
+                      }}
+                      onChange={(event) => {
+                        setShowPasswordFieldErrors(false)
+                        field.handleChange(event.target.value)
+                      }}
+                      required
+                      value={field.state.value}
+                    />
+                    <div className="field-messages field-messages--requirements">
+                      <small className="field-guidance">
+                        Use {PASSWORD_MIN_LENGTH}+ characters with a letter, number, and symbol.
+                      </small>
+                      <DebouncedFieldErrors
+                        errors={field.state.meta.errors}
+                        showImmediately={showPasswordFieldErrors}
+                        value={field.state.value}
+                      />
+                    </div>
+                  </label>
+                )}
+              </accountForm.Field>
+              <accountForm.Field name="confirmPassword">
+                {(field) => (
+                  <label className="form-field">
+                    <span className="field-label">Confirm password</span>
+                    <PasswordInput
+                      autoComplete="new-password"
+                      name={field.name}
+                      onBlur={() => {
+                        field.handleBlur()
+                        setShowConfirmPasswordErrors(true)
+                      }}
+                      onChange={(event) => {
+                        setShowConfirmPasswordErrors(false)
+                        field.handleChange(event.target.value)
+                      }}
+                      required
+                      value={field.state.value}
+                    />
+                    <div className="field-messages">
+                      <small className="field-guidance">Re-enter the same password to confirm.</small>
+                      <DebouncedFieldErrors
+                        errors={field.state.meta.errors}
+                        showImmediately={showConfirmPasswordErrors}
+                        value={field.state.value}
+                      />
+                    </div>
                   </label>
                 )}
               </accountForm.Field>
@@ -1165,95 +1146,112 @@ function OnboardingWizard({
         ) : null}
 
         {step === 2 ? (
+          <div className="onboarding-model-step">
+            <p className="setup-copy">
+              Optional: configure an AI backend for generated social copy. Test the
+              connection, pick a model, then save—or skip and write posts manually.
+            </p>
+            {onboardingStepCompleted >= 2 && !settings?.modelConfigured ? (
+              <p className="setup-callout" role="status">
+                You skipped this step earlier (amber in the step bar). Configure a backend
+                below or keep writing posts manually.
+              </p>
+            ) : null}
+            {settings ? (
+              <AiWorkspace
+                codexCli={codexCli}
+                compactIntro
+                onSaved={async (nextSettings) => {
+                  await completeModelStepAfterSave(nextSettings)
+                }}
+                saveLabel="Save and continue"
+                settings={settings}
+                showSaveButton
+              />
+            ) : (
+              <p className="setup-copy">Sign in to configure AI generation.</p>
+            )}
+            <div className="button-row">
+              <button className="secondary-button" onClick={() => void skipModelStep()} type="button">
+                Skip for now
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {step === 3 ? (
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              void modelForm.handleSubmit()
+              void xForm.handleSubmit()
             }}
           >
             <p className="setup-copy">
-              Optional: add an OpenAI API key if you want generated social copy. Create or
-              copy a key from{' '}
-              <a href="https://platform.openai.com/api-keys">OpenAI API keys</a>. The key
-              is stored encrypted in your local Postgres database. Leave it blank to write
-              posts manually.
+              Optional: connect X for direct API publishing. Use{' '}
+              <a href="https://developer.x.com/en/portal/dashboard">developer.x.com</a> to
+              generate an OAuth 2.0 <strong>user</strong> access token (not the app-only
+              Bearer Token).
             </p>
+            <XApiGuide />
+            <XCredentialMappingTable />
             <div className="form-grid">
-              <modelForm.Field name="aiProvider">
+              <xForm.Field name="xAccessToken">
                 {(field) => (
                   <label>
-                    AI backend
-                    <select
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value as 'openaiApiKey' | 'codexCli')
-                      }
-                      value={field.state.value}
-                    >
-                      <option value="openaiApiKey">OpenAI API key</option>
-                      <option value="codexCli">Local Codex CLI</option>
-                    </select>
-                    <small className="field-guidance">
-                      Codex CLI mode uses your locally authenticated codex command.
-                    </small>
-                    <FieldErrors errors={field.state.meta.errors} />
-                  </label>
-                )}
-              </modelForm.Field>
-              <modelForm.Field name="openaiApiKey">
-                {(field) => (
-                  <label>
-                    OpenAI API key
+                    X user access token (OAuth 2.0)
                     <input
                       name={field.name}
                       onBlur={field.handleBlur}
                       onChange={(event) => field.handleChange(event.target.value)}
-                      placeholder={settings?.modelConfigured ? 'Configured' : 'Optional'}
+                      placeholder={
+                        settings?.xConfigured
+                          ? 'Configured'
+                          : 'User Access Token from Authentication Tokens'
+                      }
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <small className="field-guidance">
+                      Not API Key, Secret, or app-only Bearer Token—see the mapping table
+                      above.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </xForm.Field>
+              <xForm.Field name="xRefreshToken">
+                {(field) => (
+                  <label>
+                    X refresh token (optional)
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder={
+                        settings?.xRefreshConfigured
+                          ? 'Configured'
+                          : 'From offline.access / Include refresh token'
+                      }
                       type="password"
                       value={field.state.value}
                     />
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}
-              </modelForm.Field>
-              <modelForm.Field name="openaiModel">
-                {(field) => (
-                  <label>
-                    Model
-                    <input
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => field.handleChange(event.target.value)}
-                      value={field.state.value}
-                    />
-                    <FieldErrors errors={field.state.meta.errors} />
-                  </label>
-                )}
-              </modelForm.Field>
-              <modelForm.Field name="codexCliModel">
-                {(field) => (
-                  <label>
-                    Codex CLI model
-                    <input
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => field.handleChange(event.target.value)}
-                      value={field.state.value}
-                    />
-                    <small className="field-guidance">
-                      Used only when Local Codex CLI is selected.
-                    </small>
-                    <FieldErrors errors={field.state.meta.errors} />
-                  </label>
-                )}
-              </modelForm.Field>
+              </xForm.Field>
             </div>
             <div className="button-row">
-              <button type="submit">Save model step</button>
               <button
                 className="secondary-button"
-                onClick={() => void skipModelStep()}
+                onClick={() => setStep(2)}
+                type="button"
+              >
+                Back to model
+              </button>
+              <button type="submit">Save X step</button>
+              <button
+                className="secondary-button"
+                onClick={() => void skipXStep()}
                 type="button"
               >
                 Skip for now
@@ -1262,40 +1260,22 @@ function OnboardingWizard({
           </form>
         ) : null}
 
-        {step === 3 ? (
+        {step === 4 ? (
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              void socialForm.handleSubmit()
+              void linkedinForm.handleSubmit()
             }}
           >
             <p className="setup-copy">
-              Optional: add provider credentials for direct API publishing. For X, create
-              an app in the <a href="https://developer.x.com/">X Developer Portal</a> and
-              generate a user access token with post/write access. For LinkedIn, create an
-              app at <a href="https://www.linkedin.com/developers/">LinkedIn Developers</a>,
+              Optional: connect LinkedIn for direct API publishing. Create an app at{' '}
+              <a href="https://www.linkedin.com/developers/">LinkedIn Developers</a>,
               request the posting product/scopes you need, then use a member or
               organization author URN such as urn:li:person:... or urn:li:organization:....
             </p>
             <LinkedInApiGuide />
             <div className="form-grid">
-              <socialForm.Field name="xAccessToken">
-                {(field) => (
-                  <label>
-                    X access token
-                    <input
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => field.handleChange(event.target.value)}
-                      placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
-                      type="password"
-                      value={field.state.value}
-                    />
-                    <FieldErrors errors={field.state.meta.errors} />
-                  </label>
-                )}
-              </socialForm.Field>
-              <socialForm.Field name="linkedinAccessToken">
+              <linkedinForm.Field name="linkedinAccessToken">
                 {(field) => (
                   <label>
                     LinkedIn access token
@@ -1310,8 +1290,8 @@ function OnboardingWizard({
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}
-              </socialForm.Field>
-              <socialForm.Field name="linkedinAuthorUrn">
+              </linkedinForm.Field>
+              <linkedinForm.Field name="linkedinAuthorUrn">
                 {(field) => (
                   <label>
                     LinkedIn author URN
@@ -1325,8 +1305,8 @@ function OnboardingWizard({
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}
-              </socialForm.Field>
-              <socialForm.Field name="linkedinApiVersion">
+              </linkedinForm.Field>
+              <linkedinForm.Field name="linkedinApiVersion">
                 {(field) => (
                   <label>
                     LinkedIn API version
@@ -1339,13 +1319,20 @@ function OnboardingWizard({
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}
-              </socialForm.Field>
+              </linkedinForm.Field>
             </div>
             <div className="button-row">
-              <button type="submit">Save social step</button>
               <button
                 className="secondary-button"
-                onClick={() => void skipSocialStep()}
+                onClick={() => setStep(3)}
+                type="button"
+              >
+                Back to X
+              </button>
+              <button type="submit">Save LinkedIn step</button>
+              <button
+                className="secondary-button"
+                onClick={() => void skipLinkedInStep()}
                 type="button"
               >
                 Skip and finish
@@ -1550,206 +1537,3 @@ function LoginScreen({
   )
 }
 
-function SettingsPanel({
-  settings,
-  onSave,
-}: {
-  settings: PublicSettingsStatus | null
-  onSave: (data: z.infer<typeof settingsInputSchema>) => Promise<void>
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [message, setMessage] = useState<string>()
-  const form = useForm({
-    defaultValues: {
-      aiProvider: settings?.aiProvider === 'codexCli' ? 'codexCli' : 'openaiApiKey',
-      openaiApiKey: '',
-      openaiModel: settings?.openaiModel ?? 'gpt-4.1-mini',
-      codexCliModel: settings?.codexCliModel ?? 'gpt-5.2',
-      xAccessToken: '',
-      linkedinAccessToken: '',
-      linkedinAuthorUrn: '',
-      linkedinApiVersion: settings?.linkedinApiVersion ?? '202604',
-    },
-    validators: {
-      onChange: settingsFormSchema,
-    },
-    onSubmit: async ({ value }) => {
-      setMessage(undefined)
-      try {
-        await onSave({
-          aiProvider: value.aiProvider as 'openaiApiKey' | 'codexCli',
-          openaiApiKey: value.openaiApiKey || undefined,
-          openaiModel: value.openaiModel,
-          codexCliModel: value.codexCliModel,
-          xAccessToken: value.xAccessToken || undefined,
-          linkedinAccessToken: value.linkedinAccessToken || undefined,
-          linkedinAuthorUrn: value.linkedinAuthorUrn || undefined,
-          linkedinApiVersion: value.linkedinApiVersion,
-        })
-        setMessage('Settings saved.')
-        form.setFieldValue('openaiApiKey', '')
-        form.setFieldValue('xAccessToken', '')
-        form.setFieldValue('linkedinAccessToken', '')
-      } catch (caught) {
-        setMessage(caught instanceof Error ? caught.message : 'Settings failed to save.')
-      }
-    },
-  })
-
-  return (
-    <section className="settings-panel" id="settings">
-      <div>
-        <h2>Configuration</h2>
-        <p>
-          Model, X, and LinkedIn credentials are stored encrypted in this self-hosted
-          database.
-        </p>
-      </div>
-      <div className="settings-actions">
-        <LinkedInApiGuide compact />
-        <button className="secondary-button" onClick={() => setIsOpen(!isOpen)} type="button">
-          {isOpen ? 'Close settings' : 'Edit settings'}
-        </button>
-      </div>
-      {isOpen ? (
-        <form
-          className="settings-form"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <form.Field name="openaiApiKey">
-            {(field) => (
-              <label>
-                OpenAI API key
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder={settings?.modelConfigured ? 'Configured' : 'Required'}
-                  type="password"
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="aiProvider">
-            {(field) => (
-              <label>
-                AI backend
-                <select
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) =>
-                    field.handleChange(event.target.value as 'openaiApiKey' | 'codexCli')
-                  }
-                  value={field.state.value}
-                >
-                  <option value="openaiApiKey">OpenAI API key</option>
-                  <option value="codexCli">Local Codex CLI</option>
-                </select>
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="openaiModel">
-            {(field) => (
-              <label>
-                Model
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="codexCliModel">
-            {(field) => (
-              <label>
-                Codex CLI model
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="xAccessToken">
-            {(field) => (
-              <label>
-                X access token
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder={settings?.xConfigured ? 'Configured' : 'Optional'}
-                  type="password"
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="linkedinAccessToken">
-            {(field) => (
-              <label>
-                LinkedIn access token
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder={settings?.linkedinConfigured ? 'Configured' : 'Optional'}
-                  type="password"
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="linkedinAuthorUrn">
-            {(field) => (
-              <label>
-                LinkedIn author URN
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="urn:li:person:..."
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <form.Field name="linkedinApiVersion">
-            {(field) => (
-              <label>
-                LinkedIn API version
-                <input
-                  name={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  value={field.state.value}
-                />
-                <FieldErrors errors={field.state.meta.errors} />
-              </label>
-            )}
-          </form.Field>
-          <div className="settings-form-guide">
-            <LinkedInApiGuide />
-          </div>
-          <button type="submit">Save settings</button>
-          {message ? <p className="publish-state">{message}</p> : null}
-        </form>
-      ) : null}
-    </section>
-  )
-}

@@ -13,6 +13,7 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:reset": "docker compose down -v && docker compose up -d postgres",
+    "db:wipe": "node --env-file=.env scripts/db-wipe.mjs",
     "intent:list": "intent list",
     "intent:list:json": "intent list --json",
     "intent:load:start": "intent load @tanstack/react-start#react-start",
@@ -33,6 +34,7 @@
     "pg": "^8.20.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "sonner": "^2.0.7",
     "simple-icons": "^16.19.0",
     "zod": "^4.4.3"
   },

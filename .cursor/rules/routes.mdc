@@ -1,0 +1,40 @@
+---
+description: TanStack Start route files — thin compositional shells
+globs: app/routes/**/*.tsx
+alwaysApply: false
+---
+
+# Route files
+
+Routes **compose**; they do not implement.
+
+## Required shape
+
+```tsx
+// ✅ GOOD — post.tsx target pattern
+import { createFileRoute } from '@tanstack/react-router'
+import { FeaturePage } from '../features/post/post-page'
+
+export const Route = createFileRoute('/post')({
+  loader: ({ context }) => context.queryClient.ensureQueryData(postQueryOptions()),
+  component: PostRoute,
+})
+
+function PostRoute() {
+  const data = Route.useLoaderData()
+  return <FeaturePage {...data} />
+}
+```
+
+## Forbidden in routes
+
+- Inline forms >20 lines → extract component
+- `createServerFn` definitions → `app/server/{domain}.ts`
+- OAuth/business logic → `app/lib/server/`
+- Onboarding wizards, modals, guides → `app/components/` or `app/features/onboarding/`
+
+## Refactor legacy bloat
+
+`app/routes/index.tsx` (~1500 lines) is technical debt. New work goes in extracted modules; do not add to the monolith.
+
+When touching a route over 150 lines, extract at least one chunk in the same PR.

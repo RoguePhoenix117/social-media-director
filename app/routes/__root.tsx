@@ -14,6 +14,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import type { ReactNode } from 'react'
+import { Toaster } from 'sonner'
 import { DesignProvider, parseDesignPreferences } from '../components/design-context'
 import '../styles.css'
 
@@ -66,7 +67,10 @@ function RootDocument({
       </head>
       <body suppressHydrationWarning>
         <QueryClientProvider client={queryClient}>
-          <DesignProvider initialPreferences={initialDesignPreferences}>{children}</DesignProvider>
+          <DesignProvider initialPreferences={initialDesignPreferences}>
+            {children}
+            <Toaster richColors position="top-right" />
+          </DesignProvider>
         </QueryClientProvider>
         <TanStackDevtools
           config={{ position: 'bottom-right' }}

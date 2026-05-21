@@ -14,44 +14,30 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { z } from 'zod'
+import { AiWorkspace } from '../components/ai-workspace'
+import { AppearanceSettings } from '../components/appearance-settings'
 import { AppLayout } from '../components/app-layout'
+import { XApiGuide, XCredentialMappingTable } from '../components/x-api-guide'
 import { bootstrapQueryKey } from '../lib/bootstrap-query'
+import { getCodexCliStatus } from '../lib/server/codex-cli'
 import { requireOperatorSession } from '../lib/server/session'
-import { logError, logInfo } from '../lib/server/logger'
-import {
-  getAppSettings,
-  getPublicSettingsStatus,
-  saveAppSettings,
-} from '../lib/server/settings'
+import { getPublicSettingsStatus, saveAppSettings } from '../lib/server/settings'
 
 const settingsInputSchema = z.object({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']).optional(),
-  openaiApiKey: z.string().optional(),
-  openaiModel: z.string().optional(),
-  codexCliModel: z.string().optional(),
   xAccessToken: z.string().optional(),
+  xRefreshToken: z.string().optional(),
   linkedinAccessToken: z.string().optional(),
   linkedinAuthorUrn: z.string().optional(),
   linkedinApiVersion: z.string().optional(),
 })
 
 const settingsFormSchema = z.object({
-  aiProvider: z.enum(['openaiApiKey', 'codexCli']),
-  openaiApiKey: z.string(),
-  openaiModel: z.string().min(1, 'Enter a model name, such as gpt-4.1-mini.'),
-  codexCliModel: z.string().min(1, 'Enter a Codex CLI model, such as gpt-5.2.'),
   xAccessToken: z.string(),
+  xRefreshToken: z.string(),
   linkedinAccessToken: z.string(),
   linkedinAuthorUrn: z.string(),
   linkedinApiVersion: z.string().min(1, 'Enter a LinkedIn REST API version.'),
 })
-
-const modelListInputSchema = z.object({
-  openaiApiKey: z.string().optional(),
-})
-
-const defaultModelOptions = ['gpt-5.2', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1-mini']
-const codexCliModelOptions = ['gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5-mini']
 
 const getSettingsPageState = createServerFn({ method: 'GET' }).handler(async () => {
   const session = await requireOperatorSession()
@@ -80,49 +66,6 @@ const saveSettings = createServerFn({ method: 'POST' })
     return getPublicSettingsStatus()
   })
 
-const refreshCodexCliStatus = createServerFn({ method: 'POST' }).handler(async () => {
-  await requireOperatorSession()
-  const status = await getCodexCliStatus()
-  logInfo('codex_cli.status', {
-    installed: status.installed,
-    authenticated: status.authenticated,
-  })
-  return status
-})
-
-const listOpenAIModels = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => modelListInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    await requireOperatorSession()
-    const settings = await getAppSettings()
-    const apiKey = data.openaiApiKey?.trim() || settings.openaiApiKey
-
-    if (!apiKey) {
-      throw new Error('Add an OpenAI API key first, then load available models.')
-    }
-
-    const response = await fetch('https://api.openai.com/v1/models', {
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-      },
-    })
-
-    if (!response.ok) {
-      logInfo('openai.models.non_ok', { status: response.status })
-      const details = await response.text()
-      throw new Error(details || 'OpenAI could not list models for this key.')
-    }
-
-    const payload = await response.json() as { data?: Array<{ id?: string }> }
-    const modelIds = (payload.data ?? [])
-      .map((model) => model.id)
-      .filter((id): id is string => Boolean(id))
-      .filter(isUsefulTextModel)
-      .sort((left, right) => left.localeCompare(right))
-
-    return modelIds.length ? modelIds : defaultModelOptions
-  })
-
 export const Route = createFileRoute('/settings')({
   loader: ({ context }) => context.queryClient.ensureQueryData(settingsPageQueryOptions()),
   component: SettingsPage,
@@ -136,19 +79,9 @@ function SettingsPage() {
     initialData: bootstrap,
   })
   const saveSettingsFn = useServerFn(saveSettings)
-  const listOpenAIModelsFn = useServerFn(listOpenAIModels)
-  const refreshCodexCliStatusFn = useServerFn(refreshCodexCliStatus)
   const [message, setMessage] = useState<string>()
-  const [modelMessage, setModelMessage] = useState<string>()
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const settings = pageState.settings
-  const codexCliStatus = pageState.codexCli
-  const [availableModels, setAvailableModels] = useState(() => {
-    const configured = settings.openaiModel
-    return configured && !defaultModelOptions.includes(configured)
-      ? [configured, ...defaultModelOptions]
-      : defaultModelOptions
-  })
   const [postingTarget, setPostingTarget] = useState<'person' | 'organization'>('person')
   const operatorName = pageState.operatorFirstName
     ? pageState.operatorFirstName
@@ -160,11 +93,8 @@ function SettingsPage() {
 
   const form = useForm({
     defaultValues: {
-      aiProvider: settings.aiProvider === 'codexCli' ? 'codexCli' : 'openaiApiKey',
-      openaiApiKey: '',
-      openaiModel: settings.openaiModel ?? 'gpt-4.1-mini',
-      codexCliModel: settings.codexCliModel ?? 'gpt-5.2',
       xAccessToken: '',
+      xRefreshToken: '',
       linkedinAccessToken: '',
       linkedinAuthorUrn: '',
       linkedinApiVersion: settings.linkedinApiVersion ?? '202604',
@@ -177,11 +107,8 @@ function SettingsPage() {
       try {
         const nextSettings = await saveSettingsFn({
           data: {
-            openaiApiKey: value.openaiApiKey || undefined,
-            openaiModel: value.openaiModel,
-            aiProvider: value.aiProvider,
-            codexCliModel: value.codexCliModel,
             xAccessToken: value.xAccessToken || undefined,
+            xRefreshToken: value.xRefreshToken || undefined,
             linkedinAccessToken: value.linkedinAccessToken || undefined,
             linkedinAuthorUrn: value.linkedinAuthorUrn || undefined,
             linkedinApiVersion: value.linkedinApiVersion,
@@ -200,8 +127,8 @@ function SettingsPage() {
           queryKey: bootstrapQueryKey,
           refetchType: 'all',
         })
-        form.setFieldValue('openaiApiKey', '')
         form.setFieldValue('xAccessToken', '')
+        form.setFieldValue('xRefreshToken', '')
         form.setFieldValue('linkedinAccessToken', '')
         setMessage('Settings saved. Secret fields were cleared from the screen after saving.')
       } catch (caught) {
@@ -210,51 +137,15 @@ function SettingsPage() {
     },
   })
 
-  async function loadModels(openaiApiKey: string) {
-    setModelMessage(undefined)
-    try {
-      const modelIds = await listOpenAIModelsFn({
-        data: { openaiApiKey: openaiApiKey || undefined },
-      })
-      setAvailableModels(modelIds)
-      if (!modelIds.includes(form.state.values.openaiModel)) {
-        form.setFieldValue('openaiModel', modelIds[0] ?? 'gpt-5-mini')
-        markUnsaved()
-      }
-      setModelMessage('Models loaded for this API key.')
-    } catch (caught) {
-      setModelMessage(caught instanceof Error ? caught.message : 'Could not load models.')
-    }
-  }
-
-  async function refreshCodexStatus() {
-    setModelMessage(undefined)
-    try {
-      const nextStatus = await refreshCodexCliStatusFn()
-      queryClient.setQueryData(settingsPageQueryKey, {
-        ...pageState,
-        codexCli: nextStatus,
-      })
-      await queryClient.invalidateQueries({
-        queryKey: settingsPageQueryKey,
-        refetchType: 'all',
-      })
-      setModelMessage(nextStatus.authenticated ? 'Codex CLI is authenticated.' : nextStatus.message)
-    } catch (caught) {
-      setModelMessage(caught instanceof Error ? caught.message : 'Could not check Codex CLI.')
-    }
-  }
-
   return (
     <AppLayout operatorName={operatorName}>
       <header className="topbar">
         <div>
           <p className="eyebrow">Settings</p>
-          <h1>Finish your publishing setup</h1>
+          <h1>Configuration and appearance</h1>
           <p className="page-summary">
-            Add or replace API keys here at any time. This is the full setup page for
-            model generation and social publishing, so skipped onboarding steps can be
-            completed later.
+            Manage AI generation, X and LinkedIn publishing credentials, and dashboard
+            layout and colors. Credentials are encrypted in your local database.
           </p>
         </div>
       </header>
@@ -265,288 +156,55 @@ function SettingsPage() {
         <StatusCard configured={settings.linkedinConfigured} icon={Link2} label="LinkedIn" />
       </section>
 
+      <div className="settings-page-grid">
+        <AiWorkspace
+          codexCli={pageState.codexCli}
+          onSaved={async (nextSettings) => {
+            queryClient.setQueryData(settingsPageQueryKey, {
+              ...pageState,
+              settings: nextSettings,
+            })
+            await queryClient.invalidateQueries({
+              queryKey: settingsPageQueryKey,
+              refetchType: 'all',
+            })
+            await queryClient.invalidateQueries({
+              queryKey: bootstrapQueryKey,
+              refetchType: 'all',
+            })
+          }}
+          settings={settings}
+        />
+
       <form
-        className="settings-page-grid"
         onSubmit={(event) => {
           event.preventDefault()
           void form.handleSubmit()
         }}
       >
-        <section className="template-card settings-section ai-workspace-section" id="ai-workspace">
-          <div className="panel-heading">
-            <Bot aria-hidden="true" size={22} />
-            <div>
-              <h2>AI workspace</h2>
-              <p>
-                Choose the generation method for imported posts. Each method keeps its
-                own model setting so you can switch without rebuilding the setup.
-              </p>
-            </div>
-          </div>
-
-          <div className={settings.modelConfigured ? 'auth-state-card connected' : 'auth-state-card'}>
-            <CheckCircle2 aria-hidden="true" size={18} />
-            <div>
-              <strong>
-                {settings.aiProvider === 'codexCli'
-                  ? 'Codex CLI selected'
-                  : settings.modelConfigured
-                    ? 'API key connected'
-                    : 'API key not connected'}
-              </strong>
-              <p>
-                Choose whether this app generates with a saved OpenAI API key or by
-                calling your locally authenticated Codex CLI.
-              </p>
-            </div>
-          </div>
-
-          <form.Field name="aiProvider">
-            {(field) => (
-              <div className="ai-methods" role="radiogroup" aria-label="AI generation method">
-                <label
-                  className={
-                    field.state.value === 'openaiApiKey'
-                      ? 'ai-method-card selected'
-                      : 'ai-method-card'
-                  }
-                >
-                  <span className="ai-method-summary">
-                    <input
-                      checked={field.state.value === 'openaiApiKey'}
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={() => {
-                        setModelMessage(undefined)
-                        markUnsaved()
-                        field.handleChange('openaiApiKey')
-                      }}
-                      type="radio"
-                      value="openaiApiKey"
-                    />
-                    <span>
-                      <strong>OpenAI API</strong>
-                      <small>Use an encrypted API key stored by this app.</small>
-                    </span>
-                  </span>
-                  <span className="ai-method-status">
-                    {settings.openaiModel ?? 'gpt-4.1-mini'}
-                  </span>
-                </label>
-
-                {field.state.value === 'openaiApiKey' ? (
-                  <div className="ai-method-panel">
-                    <div className="auth-state-card unavailable">
-                      <ExternalLink aria-hidden="true" size={18} />
-                      <div>
-                        <strong>ChatGPT subscription login is separate</strong>
-                        <p>
-                          ChatGPT Plus/Pro/Business subscriptions do not pay for API calls
-                          from this app. Use an API key for OpenAI API mode.
-                        </p>
-                        <a href="https://help.openai.com/en/articles/9039756" rel="noreferrer" target="_blank">
-                          ChatGPT billing vs API billing
-                        </a>
-                      </div>
-                    </div>
-
-                    <div className="ai-method-grid">
-                      <form.Field name="openaiApiKey">
-                        {(apiField) => (
-                          <label>
-                            OpenAI API key
-                            <input
-                              name={apiField.name}
-                              onBlur={apiField.handleBlur}
-                              onChange={(event) => {
-                                markUnsaved()
-                                apiField.handleChange(event.target.value)
-                              }}
-                              placeholder={settings.modelConfigured ? 'Configured' : 'sk-...'}
-                              type="password"
-                              value={apiField.state.value}
-                            />
-                            <small className="field-guidance">
-                              Create or manage keys at{' '}
-                              <a href="https://platform.openai.com/api-keys" rel="noreferrer" target="_blank">
-                                OpenAI API keys
-                              </a>
-                              .
-                            </small>
-                            <FieldErrors errors={apiField.state.meta.errors} />
-                          </label>
-                        )}
-                      </form.Field>
-                      <form.Field name="openaiModel">
-                        {(modelField) => (
-                          <label>
-                            API model
-                            <select
-                              name={modelField.name}
-                              onBlur={modelField.handleBlur}
-                              onChange={(event) => {
-                                markUnsaved()
-                                modelField.handleChange(event.target.value)
-                              }}
-                              value={modelField.state.value}
-                            >
-                              {availableModels.map((modelId) => (
-                                <option key={modelId} value={modelId}>
-                                  {modelId}
-                                </option>
-                              ))}
-                            </select>
-                            <small className="field-guidance">
-                              Load models after adding a key to see what your API organization can use.
-                            </small>
-                            <FieldErrors errors={modelField.state.meta.errors} />
-                          </label>
-                        )}
-                      </form.Field>
-                    </div>
-
-                    <form.Field name="openaiApiKey">
-                      {(apiField) => (
-                        <div className="button-row">
-                          <button
-                            className="secondary-button"
-                            onClick={() => void loadModels(apiField.state.value)}
-                            type="button"
-                          >
-                            Load available models
-                          </button>
-                          {modelMessage ? <p className="publish-state">{modelMessage}</p> : null}
-                        </div>
-                      )}
-                    </form.Field>
-                  </div>
-                ) : null}
-
-                <label
-                  className={
-                    field.state.value === 'codexCli'
-                      ? 'ai-method-card selected'
-                      : 'ai-method-card'
-                  }
-                >
-                  <span className="ai-method-summary">
-                    <input
-                      checked={field.state.value === 'codexCli'}
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={() => {
-                        setModelMessage(undefined)
-                        markUnsaved()
-                        field.handleChange('codexCli')
-                      }}
-                      type="radio"
-                      value="codexCli"
-                    />
-                    <span>
-                      <strong>Local Codex CLI</strong>
-                      <small>Use the locally installed and authenticated codex command.</small>
-                    </span>
-                  </span>
-                  <span className="ai-method-status">
-                    {codexCliStatus.authenticated ? 'Ready' : 'Needs setup'}
-                  </span>
-                </label>
-
-                {field.state.value === 'codexCli' ? (
-                  <div className="ai-method-panel">
-                    <div className={codexCliStatus.authenticated ? 'auth-state-card connected' : 'auth-state-card'}>
-                      <CheckCircle2 aria-hidden="true" size={18} />
-                      <div>
-                        <strong>{codexCliStatus.authenticated ? 'Codex CLI authenticated' : 'Codex CLI not ready'}</strong>
-                        <p>{codexCliStatus.message}</p>
-                      </div>
-                    </div>
-
-                    <div className="ai-method-grid">
-                      <form.Field name="codexCliModel">
-                        {(modelField) => (
-                          <label>
-                            Codex CLI model
-                            <select
-                              name={modelField.name}
-                              onBlur={modelField.handleBlur}
-                              onChange={(event) => {
-                                markUnsaved()
-                                modelField.handleChange(event.target.value)
-                              }}
-                              value={modelField.state.value}
-                            >
-                              {codexCliModelOptions.map((modelId) => (
-                                <option key={modelId} value={modelId}>
-                                  {modelId}
-                                </option>
-                              ))}
-                            </select>
-                            <small className="field-guidance">
-                              Available for Local Codex CLI generation.
-                            </small>
-                            <FieldErrors errors={modelField.state.meta.errors} />
-                          </label>
-                        )}
-                      </form.Field>
-                    </div>
-
-                    <ol className="friendly-steps compact">
-                      <li>
-                        <strong>Install:</strong> run <code>npm install -g @openai/codex</code> or
-                        install Codex from the official GitHub releases.
-                      </li>
-                      <li>
-                        <strong>Authorize:</strong> run <code>codex login</code>, choose Sign in
-                        with ChatGPT, and finish the browser flow.
-                      </li>
-                      <li>
-                        <strong>Verify:</strong> run <code>codex login status</code>. It should say
-                        you are logged in using ChatGPT.
-                      </li>
-                    </ol>
-
-                    <div className="guide-link-list always-visible">
-                      <a href="https://help.openai.com/en/articles/11381614" rel="noreferrer" target="_blank">
-                        <ExternalLink aria-hidden="true" size={15} />
-                        Codex CLI and Sign in with ChatGPT
-                      </a>
-                      <a href="https://github.com/openai/codex" rel="noreferrer" target="_blank">
-                        <ExternalLink aria-hidden="true" size={15} />
-                        OpenAI Codex CLI on GitHub
-                      </a>
-                    </div>
-
-                    <div className="button-row">
-                      <button className="secondary-button" onClick={() => void refreshCodexStatus()} type="button">
-                        Check Codex CLI status
-                      </button>
-                      {modelMessage ? <p className="publish-state">{modelMessage}</p> : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                <FieldErrors errors={field.state.meta.errors} />
-              </div>
-            )}
-          </form.Field>
-        </section>
-
         <section className="template-card settings-section" id="x-publishing">
           <div className="panel-heading">
             <Send aria-hidden="true" size={22} />
             <div>
               <h2>X publishing</h2>
               <p>
-                Add a user access token from the X Developer Portal with permission to
-                create posts.
+                Paste an OAuth 2.0 <strong>user</strong> access token from the X Developer
+                Portal. API Key, API Key Secret, and the app-only Bearer Token on the main
+                keys screen are not used for posting.
               </p>
             </div>
           </div>
+
+          <div className="settings-form-guide">
+            <XApiGuide />
+          </div>
+
+          <XCredentialMappingTable />
+
           <form.Field name="xAccessToken">
             {(field) => (
               <label>
-                X access token
+                X user access token (OAuth 2.0)
                 <input
                   name={field.name}
                   onBlur={field.handleBlur}
@@ -554,16 +212,52 @@ function SettingsPage() {
                     markUnsaved()
                     field.handleChange(event.target.value)
                   }}
-                  placeholder={settings.xConfigured ? 'Configured' : 'Paste access token'}
+                  placeholder={
+                    settings.xConfigured
+                      ? 'Configured — paste to replace'
+                      : 'Paste user Access Token from Authentication Tokens'
+                  }
                   type="password"
                   value={field.state.value}
                 />
                 <small className="field-guidance">
-                  Create an app at{' '}
+                  In{' '}
                   <a href="https://developer.x.com/en/portal/dashboard" rel="noreferrer" target="_blank">
-                    X Developer Portal
-                  </a>{' '}
-                  and generate a user token with write access.
+                    developer.x.com
+                  </a>
+                  , open your App → <strong>Keys and tokens</strong> → scroll to{' '}
+                  <strong>Authentication Tokens</strong> → <strong>Access Token and Secret</strong>{' '}
+                  → Generate. Use that Access Token here—not Consumer Key, Secret, or the
+                  Bearer Token at the top of the page.
+                </small>
+                <FieldErrors errors={field.state.meta.errors} />
+              </label>
+            )}
+          </form.Field>
+
+          <form.Field name="xRefreshToken">
+            {(field) => (
+              <label>
+                X refresh token (OAuth 2.0, optional)
+                <input
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    markUnsaved()
+                    field.handleChange(event.target.value)
+                  }}
+                  placeholder={
+                    settings.xRefreshConfigured
+                      ? 'Configured — paste to replace'
+                      : 'Paste refresh token if you enabled offline.access'
+                  }
+                  type="password"
+                  value={field.state.value}
+                />
+                <small className="field-guidance">
+                  Shown once when you generate a token with <strong>Include refresh token</strong>{' '}
+                  (<code>offline.access</code>). Stored encrypted for future automatic renewal;
+                  publishing still uses the access token above.
                 </small>
                 <FieldErrors errors={field.state.meta.errors} />
               </label>
@@ -687,6 +381,46 @@ function SettingsPage() {
         </section>
 
         <section className="template-card settings-section guide-panel">
+          <h2>X setup checklist</h2>
+          <ol className="friendly-steps">
+            <li>
+              <strong>Portal:</strong> sign in at{' '}
+              <a href="https://developer.x.com/en/portal/dashboard" rel="noreferrer" target="_blank">
+                developer.x.com
+              </a>{' '}
+              (same as console.x.com) and create a Project with an App.
+            </li>
+            <li>
+              <strong>Authentication settings:</strong> choose Read and write, Type of App →
+              Web App, Automated App or Bot, and fill required Callback URI and Website URL
+              (e.g. <code>http://127.0.0.1:5173/</code>) before Save Changes will work.
+            </li>
+            <li>
+              <strong>Ignore for this field:</strong> API Key (Consumer Key), API Key Secret,
+              and the app-only Bearer Token on the main Keys and tokens tab.
+            </li>
+            <li>
+              <strong>Generate:</strong> under Authentication Tokens → Access Token and
+              Secret → Generate, then copy the <strong>Access Token</strong>.
+            </li>
+            <li>
+              <strong>Paste here:</strong> access token in X user access token; refresh token
+              (if generated) in X refresh token; then publish a test draft.
+            </li>
+          </ol>
+          <div className="guide-link-list always-visible">
+            <a href="https://docs.x.com/fundamentals/authentication/oauth-2-0/overview" rel="noreferrer" target="_blank">
+              <ExternalLink aria-hidden="true" size={15} />
+              X OAuth 2.0
+            </a>
+            <a href="https://docs.x.com/x-api/posts/create-post" rel="noreferrer" target="_blank">
+              <ExternalLink aria-hidden="true" size={15} />
+              Create Post API
+            </a>
+          </div>
+        </section>
+
+        <section className="template-card settings-section guide-panel">
           <h2>LinkedIn setup checklist</h2>
           <ol className="friendly-steps">
             <li>
@@ -747,6 +481,9 @@ function SettingsPage() {
           {message ? <p className="publish-state">{message}</p> : null}
         </div>
       </form>
+      </div>
+
+      <AppearanceSettings />
     </AppLayout>
   )
 }
@@ -772,67 +509,6 @@ function StatusCard({
       {configured ? <CheckCircle2 aria-hidden="true" className="status-check" size={19} /> : null}
     </article>
   )
-}
-
-async function getCodexCliStatus() {
-  const { spawn } = await import('node:child_process')
-
-  return new Promise<{ installed: boolean; authenticated: boolean; message: string }>((resolve) => {
-    const child = spawn('codex', ['login', 'status'], {
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk)
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk)
-    })
-    child.on('error', () => {
-      logInfo('codex_cli.status.spawn_error')
-      resolve({
-        installed: false,
-        authenticated: false,
-        message: 'Codex CLI is not installed or is not available on PATH.',
-      })
-    })
-    child.on('close', (code) => {
-      const output = `${stdout}\n${stderr}`.trim()
-      const authenticated = code === 0 && /logged in/i.test(output)
-      resolve({
-        installed: code !== 127,
-        authenticated,
-        message: authenticated
-          ? output || 'Logged in.'
-          : output || 'Run codex login and choose Sign in with ChatGPT.',
-      })
-      if (!authenticated) {
-        logError('codex_cli.status.not_authenticated', new Error(output || 'Not authenticated'), {
-          code: code ?? -1,
-        })
-      }
-    })
-  })
-}
-
-function isUsefulTextModel(id: string) {
-  if (
-    id.includes('audio') ||
-    id.includes('embedding') ||
-    id.includes('image') ||
-    id.includes('realtime') ||
-    id.includes('sora') ||
-    id.includes('tts') ||
-    id.includes('transcribe') ||
-    id.includes('whisper')
-  ) {
-    return false
-  }
-
-  return id.startsWith('gpt-') || id.startsWith('o')
 }
 
 function FieldErrors({ errors }: Readonly<{ errors: Array<unknown> }>) {
