@@ -16,6 +16,9 @@ import { Route as PostRouteImport } from './routes/post'
 import { Route as MonitorRouteImport } from './routes/monitor'
 import { Route as DraftRouteImport } from './routes/draft'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as IntegrationsSocialAddingRouteImport } from './routes/integrations/social/adding'
+import { Route as IntegrationsSocialXIndexRouteImport } from './routes/integrations/social/x/index'
+import { Route as IntegrationsSocialXCallbackRouteImport } from './routes/integrations/social/x/callback'
 
 const StatsRoute = StatsRouteImport.update({
   id: '/stats',
@@ -52,6 +55,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntegrationsSocialAddingRoute =
+  IntegrationsSocialAddingRouteImport.update({
+    id: '/integrations/social/adding',
+    path: '/integrations/social/adding',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const IntegrationsSocialXIndexRoute =
+  IntegrationsSocialXIndexRouteImport.update({
+    id: '/integrations/social/x/',
+    path: '/integrations/social/x/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const IntegrationsSocialXCallbackRoute =
+  IntegrationsSocialXCallbackRouteImport.update({
+    id: '/integrations/social/x/callback',
+    path: '/integrations/social/x/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +82,9 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
+  '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/x/': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +94,9 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
+  '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/x': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +107,9 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
+  '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/x/': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,8 +121,21 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/stats'
+    | '/integrations/social/adding'
+    | '/integrations/social/x/callback'
+    | '/integrations/social/x/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/draft' | '/monitor' | '/post' | '/settings' | '/setup' | '/stats'
+  to:
+    | '/'
+    | '/draft'
+    | '/monitor'
+    | '/post'
+    | '/settings'
+    | '/setup'
+    | '/stats'
+    | '/integrations/social/adding'
+    | '/integrations/social/x/callback'
+    | '/integrations/social/x'
   id:
     | '__root__'
     | '/'
@@ -102,6 +145,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/stats'
+    | '/integrations/social/adding'
+    | '/integrations/social/x/callback'
+    | '/integrations/social/x/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -112,6 +158,9 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   StatsRoute: typeof StatsRoute
+  IntegrationsSocialAddingRoute: typeof IntegrationsSocialAddingRoute
+  IntegrationsSocialXCallbackRoute: typeof IntegrationsSocialXCallbackRoute
+  IntegrationsSocialXIndexRoute: typeof IntegrationsSocialXIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -165,6 +214,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/integrations/social/adding': {
+      id: '/integrations/social/adding'
+      path: '/integrations/social/adding'
+      fullPath: '/integrations/social/adding'
+      preLoaderRoute: typeof IntegrationsSocialAddingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/social/x/': {
+      id: '/integrations/social/x/'
+      path: '/integrations/social/x'
+      fullPath: '/integrations/social/x/'
+      preLoaderRoute: typeof IntegrationsSocialXIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/social/x/callback': {
+      id: '/integrations/social/x/callback'
+      path: '/integrations/social/x/callback'
+      fullPath: '/integrations/social/x/callback'
+      preLoaderRoute: typeof IntegrationsSocialXCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -176,6 +246,9 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   StatsRoute: StatsRoute,
+  IntegrationsSocialAddingRoute: IntegrationsSocialAddingRoute,
+  IntegrationsSocialXCallbackRoute: IntegrationsSocialXCallbackRoute,
+  IntegrationsSocialXIndexRoute: IntegrationsSocialXIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

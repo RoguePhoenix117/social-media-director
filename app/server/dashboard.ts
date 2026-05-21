@@ -12,7 +12,7 @@ import { isDatabaseConnectionError } from '../lib/db/errors'
 import { validateProviderPayload } from '../lib/domain/validation'
 import { getProviderAdapter } from '../lib/providers'
 import { getCodexCliStatus, type CodexCliStatus } from '../lib/server/codex-cli'
-import { hashPassword, verifyPassword } from '../lib/server/crypto'
+import { decryptSecret, hashPassword, verifyPassword } from '../lib/server/crypto'
 import { isInstanceConfigured } from '../lib/server/instance-config'
 import { logError, logInfo } from '../lib/server/logger'
 import {
@@ -20,6 +20,7 @@ import {
   type OperatorProject,
 } from '../lib/server/projects'
 import {
+  getProjectChannel,
   listPublicProjectChannels,
   type PublicProjectChannel,
 } from '../lib/server/provider-accounts'
@@ -320,17 +321,19 @@ export const importAndGenerate = createServerFn({ method: 'POST' })
 export const publishVariant = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => publishInputSchema.parse(input))
   .handler(async ({ data }) => {
-    await requireOperatorSession()
+    const session = await requireOperatorSession()
     const settings = await getAppSettings()
     const adapter = getProviderAdapter(data.provider, {
       linkedinAuthorUrn: settings.linkedinAuthorUrn,
       linkedinApiVersion: settings.linkedinApiVersion,
     })
-    const token = data.provider === 'x' ? settings.xAccessToken : settings.linkedinAccessToken
 
-    if (!token) {
-      throw new Error(`${data.provider === 'x' ? 'X' : 'LinkedIn'} credentials are not configured.`)
-    }
+    const token = await resolvePublishToken({
+      provider: data.provider,
+      activeProjectId: session.activeProjectId,
+      legacyXToken: settings.xAccessToken,
+      legacyLinkedInToken: settings.linkedinAccessToken,
+    })
 
     if (data.provider === 'linkedin' && !settings.linkedinAuthorUrn) {
       throw new Error('LinkedIn author URN is not configured.')
@@ -342,5 +345,33 @@ export const publishVariant = createServerFn({ method: 'POST' })
       providerPostUrl: result.providerPostUrl,
     }
   })
+
+/**
+ * X tokens come from the project's `provider_accounts` (PR3 OAuth flow).
+ * LinkedIn still uses the legacy paste-based `app_settings` token until PR5
+ * lands the LinkedIn OAuth flow.
+ */
+async function resolvePublishToken(input: {
+  provider: 'x' | 'linkedin'
+  activeProjectId: string | null
+  legacyXToken: string | undefined
+  legacyLinkedInToken: string | undefined
+}): Promise<string> {
+  if (input.provider === 'x') {
+    if (!input.activeProjectId) {
+      throw new Error('Select a project before publishing.')
+    }
+    const account = await getProjectChannel(input.activeProjectId, 'x')
+    if (!account) {
+      throw new Error('X is not connected for this project.')
+    }
+    return decryptSecret(account.accessTokenCiphertext)
+  }
+
+  if (!input.legacyLinkedInToken) {
+    throw new Error('LinkedIn credentials are not configured.')
+  }
+  return input.legacyLinkedInToken
+}
 
 export type ImportResult = Awaited<ReturnType<typeof importAndGenerate>>
