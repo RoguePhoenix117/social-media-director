@@ -23,8 +23,8 @@ export const xPortalCredentialRows = [
   {
     portalLabel: 'Access Token (Authentication Tokens → Generate)',
     alsoKnownAs: 'OAuth 2.0 user access token',
-    usedForPosting: true,
-    pasteInApp: true,
+    usedForPosting: false,
+    pasteInApp: false,
   },
 ] as const
 
@@ -46,11 +46,11 @@ export const xGuideSteps = [
   {
     title: 'Save Authentication settings (required fields)',
     summary:
-      'The portal will not enable Save until OAuth 2.0 app metadata is filled in—even if you only plan to paste a token into this dashboard. Pick Web App and enter minimal URLs; Social Media Director does not run an X OAuth redirect flow yet, but X still requires these fields.',
+      'The portal will not enable Save until OAuth 2.0 app metadata is filled in. Pick Web App and enter the callback URL below — end users connect channels via OAuth; deployers only register the app client ID and secret here.',
     checklist: [
       'App permissions: select Read and write.',
       'Type of App: select Web App, Automated App or Bot (confidential client)—not Native App.',
-      'Callback URI / Redirect URL (required): use http://127.0.0.1:5173/ for local dev (X prefers 127.0.0.1 over localhost). Use your real https:// origin in production.',
+      'Callback URI / Redirect URL (required): {APP_ORIGIN}/integrations/social/x/callback (e.g. http://localhost:5173/integrations/social/x/callback for local dev).',
       'Website URL (required): same origin as above, e.g. http://127.0.0.1:5173 or your deployed site URL.',
       'Leave Request email from users unchecked unless you also add HTTPS Terms of Service and Privacy Policy URLs.',
       'Click Save Changes, then open Keys and tokens.',
@@ -61,28 +61,17 @@ export const xGuideSteps = [
     ],
   },
   {
-    title: 'Map portal keys to this dashboard',
+    title: 'Map portal keys to Setup Mode / Developers settings',
     summary:
-      'The three values on the main Keys and tokens screen are not interchangeable. Only the user Access Token from Authentication Tokens is pasted into Social Media Director.',
+      'Deployers paste the OAuth 2.0 Client ID and Client Secret into Setup Mode or Settings → Developers. End users never paste tokens — they authorize via Connect Channels.',
     checklist: [
-      'Do not paste API Key, API Key Secret, or the App-only Bearer Token into this app—they will not publish posts.',
-      'Scroll to Authentication Tokens → Access Token and Secret → Generate.',
-      'Copy both the Access Token and Refresh Token when Include refresh token (offline.access) is enabled.',
+      'Paste Client ID and Client Secret only — not API Key labels from the wrong section, and not user Access Tokens.',
+      'Do not connect your personal X account during developer setup.',
+      'End users connect channels from the Connect Channels modal after sign-up.',
     ],
     links: [
       ['Authentication best practices', 'https://docs.x.com/resources/fundamentals/authentication/guides/authentication-best-practices'],
     ],
-  },
-  {
-    title: 'Save the token in Settings',
-    summary:
-      'Paste the user access token into X user access token below, save settings, and use Publish on a draft to verify the connection.',
-    checklist: [
-      'Open Settings → X publishing in this dashboard.',
-      'Paste the access token into X user access token, and the refresh token into X refresh token (if you generated one).',
-      'Click Save settings, then publish a test draft from the post review screen.',
-    ],
-    links: [],
   },
 ] as const
 

@@ -226,7 +226,7 @@ export const importAndGenerate = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const startedAt = Date.now()
     try {
-      await requireOperatorSession()
+      const session = await requireOperatorSession()
       logInfo('import_generate.start', {
         url: data.url,
         hasIntentPrompt: Boolean(data.intentPrompt?.trim()),
@@ -253,17 +253,28 @@ export const importAndGenerate = createServerFn({ method: 'POST' })
         },
         generationConfig ?? undefined,
       )
+      const mappedVariants = variants.map((variant) => ({
+        ...variant,
+        validation: validateProviderPayload(variant.provider, variant),
+      }))
+
+      if (session.activeProjectId) {
+        const { saveImportedDraft } = await import('../lib/db/repository')
+        await saveImportedDraft(source, variants, {
+          intentPrompt: data.intentPrompt,
+          projectId: session.activeProjectId,
+        })
+      }
+
       logInfo('import_generate.success', {
         durationMs: Date.now() - startedAt,
         variantCount: variants.length,
+        projectId: session.activeProjectId,
       })
 
       return {
         source,
-        variants: variants.map((variant) => ({
-          ...variant,
-          validation: validateProviderPayload(variant.provider, variant),
-        })),
+        variants: mappedVariants,
       }
     } catch (error) {
       logError('import_generate.failure', error, {

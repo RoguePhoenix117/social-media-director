@@ -287,7 +287,10 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
         )
       ) : null}
 
-      <ImportWorkspace settings={authState.settings} />
+      <ImportWorkspace
+        key={authState.activeProjectId ?? 'no-project'}
+        settings={authState.settings}
+      />
 
       <ConnectChannelsModal
         connectedChannels={authState.connectedChannels}

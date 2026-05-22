@@ -4,8 +4,10 @@ import { getDb } from './client'
 export async function saveImportedDraft(
   source: ImportedContentSource,
   variants: ProviderVariant[],
-  intentPrompt?: string,
+  options?: { intentPrompt?: string; projectId?: string | null },
 ) {
+  const intentPrompt = options?.intentPrompt
+  const projectId = options?.projectId ?? null
   const db = getDb()
   const client = await db.connect()
 
@@ -13,8 +15,8 @@ export async function saveImportedDraft(
     await client.query('begin')
     const sourceResult = await client.query<{ id: string }>(
       `insert into content_sources
-        (source_type, source_url, canonical_url, title, description, image_url, excerpt, body)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+        (source_type, source_url, canonical_url, title, description, image_url, excerpt, body, project_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        returning id`,
       [
         'public_url',
@@ -25,13 +27,14 @@ export async function saveImportedDraft(
         source.imageUrl ?? null,
         source.excerpt ?? null,
         source.body ?? null,
+        projectId,
       ],
     )
 
     const masterResult = await client.query<{ id: string }>(
       `insert into master_posts
-        (content_source_id, intent_prompt, summary, default_link_url, default_image_url)
-       values ($1, $2, $3, $4, $5)
+        (content_source_id, intent_prompt, summary, default_link_url, default_image_url, project_id)
+       values ($1, $2, $3, $4, $5, $6)
        returning id`,
       [
         sourceResult.rows[0]?.id,
@@ -39,6 +42,7 @@ export async function saveImportedDraft(
         source.excerpt ?? source.description ?? source.title,
         source.canonicalUrl,
         source.imageUrl ?? null,
+        projectId,
       ],
     )
 

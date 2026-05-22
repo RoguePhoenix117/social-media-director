@@ -16,6 +16,7 @@ Open-source, self-hosted social posting dashboard for turning public blog posts 
 
 - [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) — **deployer guide**. How to register the X + LinkedIn apps for an instance, set OAuth callback URLs, choose between env vars and the in-app Setup Mode wizard, and protect `/setup` with `INSTANCE_SETUP_KEY`.
 - [`docs/end-user-guide.md`](docs/end-user-guide.md) — **operator guide**. Sign up, create a project, connect channels via OAuth, draft and publish.
+- [`docs/manual-test-checklist.md`](docs/manual-test-checklist.md) — **QA checklist**. Phase-by-phase manual test plan after PR1–PR6.
 - [`docs/CODE_INDEX.md`](docs/CODE_INDEX.md) — module catalog (discover-before-create).
 - [`docs/adr/`](docs/adr) — architecture decision records.
 - [`plan.md`](plan.md) — authoritative implementation plan for the OAuth + projects migration.

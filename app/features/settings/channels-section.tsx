@@ -31,7 +31,7 @@ export function ChannelsSection({
             <h2>Connected channels</h2>
             <p>
               Connect your X and LinkedIn accounts via OAuth. Tokens stay encrypted in
-              your local database. LinkedIn ships in the next release.
+              your local database.
             </p>
           </div>
         </div>
