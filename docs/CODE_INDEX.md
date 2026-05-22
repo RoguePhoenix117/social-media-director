@@ -6,7 +6,8 @@ Search this file and the paths below before adding new code. Extend this index w
 
 | Module | Use for |
 |--------|---------|
-| `app-layout.tsx` | Shell, sidebar, nav, logout |
+| `app-layout.tsx` | Shell, sidebar, nav, logout — accepts optional `projectSwitcher?: ReactNode` slot (rendered in sidebar operator card or top-nav actions) |
+| `project-switcher.tsx` | Dropdown that lists operator projects with `connectedChannelCount` badges; calls `onSwitch(projectId)` |
 | `ai-workspace.tsx` | AI backend setup (onboarding + settings) |
 | `active-ai-backend-control.tsx` | Dashboard backend switcher |
 | `appearance-settings.tsx` | Theme/layout preferences |
@@ -49,7 +50,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `ai-workspace.ts` | AI connection test/save |
 | `settings.ts` | Settings page state aggregator (read-only since PR4 removed legacy paste) |
 | `setup.ts` | Instance Setup Mode + Developer settings (`getInstanceSetupStatus`, `saveInstanceSetup`, `getDeveloperSettings`, `saveDeveloperSettings`) |
-| `projects.ts` | Onboarding-aware project lifecycle: `createProjectStep`, `completeChannelsStep`, `completeOnboarding` (PR4) |
+| `projects.ts` | Onboarding-aware project lifecycle: `createProjectStep`, `completeChannelsStep`, `completeOnboarding` (PR4) + PR6 mutations `createProject` (settings → projects) and `setActiveProject` (project switcher) — both reuse `buildOnboardingStepResult` so the client cache update path stays unified |
 | `channels.ts` | `listProjectChannels`, `startXOAuth`/`completeXOAuth` (PR3), `startLinkedInOAuth`/`completeLinkedInOAuth` (PR5) |
 
 ## Server libraries (`app/lib/server/`)
@@ -61,7 +62,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `crypto.ts` | Encrypt/decrypt, passwords |
 | `codex-cli.ts` | Codex CLI status/models |
 | `instance-config.ts` | OAuth app credentials (env overrides DB) + `isInstanceConfigured` / `markInstanceConfigured` |
-| `projects.ts` | `createProject`, `listOperatorProjects`, `setActiveProject`, `ensureOperatorProjectAccess`, `slugify` |
+| `projects.ts` | `createProject`, `listOperatorProjects` (joins `provider_accounts` for `connectedChannelCount`), `setActiveProject`, `ensureOperatorProjectAccess`, `slugify` |
 | `provider-accounts.ts` | `listProjectChannels`, `getProjectChannel`, `upsertProviderAccount`, `disconnectChannel` |
 | `setup-guard.ts` | `assertSetupKeyValid`, `isLocalhostOrigin`, `isSetupKeyConfigured` (used by PR2 setup route) |
 | `setup-helpers.ts` | Pure helpers shared by Setup Mode + Settings → Developers (`buildSaveInput`, `toProviderStatus`, `buildCallbackUrls`, `computeSetupKeyState`) |
@@ -101,7 +102,7 @@ Prefer `app/components/{feature}/` until a feature needs hooks + multiple pages.
 | Folder | Purpose |
 |--------|---------|
 | `app/features/setup/` | Setup Mode wizard (`setup-wizard.tsx`, `setup-key-gate.tsx`, `provider-credential-fields.tsx`, `setup-callback-url.tsx`, `setup-query.ts`) |
-| `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `channels-section.tsx`, `settings-query.ts`) |
+| `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `channels-section.tsx`, `projects-section.tsx`, `settings-query.ts`) |
 | `app/features/dashboard/` | Authenticated dashboard composition (`dashboard-screen.tsx`, `dashboard-status-grid.tsx`, `import-workspace.tsx`, `database-setup-screen.tsx`) — extracted from the legacy `app/routes/index.tsx` monolith |
 
 ## Anti-patterns (do not extend)

@@ -2,23 +2,36 @@
 
 Open-source, self-hosted social posting dashboard for turning public blog posts into reviewed social media drafts.
 
-## MVP Scope
+## MVP scope
 
 - Public blog URL import from any blogging platform.
 - AI-assisted X and LinkedIn draft generation for review.
-- First-run onboarding for operator login and self-hosted API credentials.
+- One-click OAuth connection for X and LinkedIn — no manual token pasting.
+- Project-scoped workspaces: each project owns its own X + LinkedIn channels, drafts, and publish history.
+- First-run onboarding for the operator account, first project, channel connection, and AI setup.
 - Publish-now workflow through official provider APIs only.
-- No browser automation, scraping logged-in dashboards, or automated UI clicking.
+- No browser automation, no scraping logged-in dashboards, no automated UI clicking.
 
-## Development
+## Documentation
+
+- [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) — **deployer guide**. How to register the X + LinkedIn apps for an instance, set OAuth callback URLs, choose between env vars and the in-app Setup Mode wizard, and protect `/setup` with `INSTANCE_SETUP_KEY`.
+- [`docs/end-user-guide.md`](docs/end-user-guide.md) — **operator guide**. Sign up, create a project, connect channels via OAuth, draft and publish.
+- [`docs/CODE_INDEX.md`](docs/CODE_INDEX.md) — module catalog (discover-before-create).
+- [`docs/adr/`](docs/adr) — architecture decision records.
+- [`plan.md`](plan.md) — authoritative implementation plan for the OAuth + projects migration.
+
+## Quick start (development)
 
 ```bash
 pnpm install
-pnpm db:up
-pnpm dev
+cp .env.example .env       # fill in SESSION_SECRET, APP_ENCRYPTION_KEY
+pnpm db:up                 # boots local Postgres in Docker
+pnpm dev                   # http://localhost:5173
 ```
 
-Copy `.env.example` to `.env` and set `DATABASE_URL` before connecting live providers.
+On first boot you'll be redirected to `/setup` — the in-app wizard that registers your X + LinkedIn OAuth apps. Follow [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) for the portal steps.
+
+Once setup is done, sign up as the first operator (you become the instance owner), create a project, and authorize X + LinkedIn via the Connect Channels modal. See [`docs/end-user-guide.md`](docs/end-user-guide.md) for the end-user walkthrough.
 
 ## TanStack Intent
 
@@ -28,6 +41,7 @@ This project includes `@tanstack/intent` so agents can load version-matched TanS
 pnpm intent:list
 pnpm intent:load:start
 pnpm intent:load:server-functions
+pnpm intent:load:auth
 ```
 
 ## Database
@@ -44,50 +58,28 @@ The default `.env.example` connection string matches the Docker container:
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/social_media_director
 ```
 
-Migrations in `migrations/` are mounted into Postgres' Docker init directory and run
-automatically the first time the `postgres-data` volume is created. To rebuild the
-database from scratch and rerun all migrations:
+Migrations in `migrations/` are mounted into Postgres' Docker init directory and run automatically the first time the `postgres-data` volume is created. To rebuild the database from scratch and rerun all migrations:
 
 ```bash
 pnpm db:reset
 ```
 
-To clear all operators, sessions, settings, and posts but keep the existing schema
-(Postgres container and migrations unchanged):
+To clear all operators, sessions, settings, and posts but keep the existing schema (Postgres container and migrations unchanged):
 
 ```bash
 pnpm db:wipe
 ```
 
-Use `pnpm db:logs` to watch Postgres startup and migration output, and `pnpm db:down`
-to stop the container while keeping the local database volume.
+Use `pnpm db:logs` to watch Postgres startup and migration output, and `pnpm db:down` to stop the container while keeping the local database volume.
 
-This project uses the Postgres 18 Docker image, so the database volume is mounted
-at `/var/lib/postgresql` per the image's current storage layout.
+This project uses the Postgres 18 Docker image, so the database volume is mounted at `/var/lib/postgresql` per the image's current storage layout.
 
-On first launch, the app shows a resumable onboarding wizard:
+## Security
 
-1. Create the local operator account.
-2. Optionally add an OpenAI API key from `https://platform.openai.com/api-keys`.
-3. Optionally add X publishing credentials (separate save).
-4. Optionally add LinkedIn publishing credentials (separate save; completes onboarding).
+All secrets are encrypted at rest in Postgres with `APP_ENCRYPTION_KEY`:
 
-Credentials are stored encrypted in Postgres—not in `.env`. Apply `migrations/0004_x_linkedin_onboarding_steps.sql` if upgrading an existing database (Docker init runs new migrations on a fresh volume only).
+- OAuth app credentials (`X_CLIENT_SECRET`, `LINKEDIN_CLIENT_SECRET`) stored in `instance_config` when set via the Setup Mode UI instead of env vars.
+- User OAuth access + refresh tokens stored in `provider_accounts`.
+- AI backend keys stored in `operator_settings`.
 
-Each step saves independently. If setup is interrupted, log in again and the dashboard shows the next unfinished step. Secrets are encrypted before being stored in Postgres.
-
-### X (Twitter) publishing credentials
-
-Sign in at [developer.x.com](https://developer.x.com/en/portal/dashboard) (the same portal as console.x.com), create a **Project** and **App**, then open **User authentication settings**. Select **Read and write**, choose **Web App, Automated App or Bot**, and fill the required **Callback URI** and **Website URL** (for local dev, `http://127.0.0.1:5173/` works) before **Save Changes** enables.
-
-The three values on the main **Keys and tokens** tab are **not** what you paste into this app:
-
-| X Developer Portal label | Paste into Social Media Director? |
-| --- | --- |
-| API Key (Consumer Key) | No — OAuth Client ID only |
-| API Key Secret (Consumer Secret) | No — OAuth Client Secret only |
-| Bearer Token (top of page) | No — app-only token, cannot post as you |
-| **Access Token** under **Authentication Tokens → Access Token and Secret → Generate** | **Yes** — paste as **X user access token** in Settings |
-| **Refresh Token** (when **Include refresh token** / `offline.access` is enabled) | **Yes** — paste as **X refresh token** in Settings (optional but recommended) |
-
-Publishing calls `POST https://api.x.com/2/tweets` with the user access token as a Bearer token. The refresh token is stored for future automatic renewal (not used by publish yet). See **Settings → X publishing** for the in-app tutorial and mapping table.
+When deploying to a public host, set `INSTANCE_SETUP_KEY` before exposing port 5173 — see [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md#step-4--set-instance_setup_key-before-exposing-to-the-internet).

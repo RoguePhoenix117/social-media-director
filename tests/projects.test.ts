@@ -24,6 +24,7 @@ type SessionRecord = {
 const projects = new Map<string, ProjectRecord>()
 const operatorProjects: OperatorProjectRecord[] = []
 const sessions = new Map<string, SessionRecord>()
+const channelCounts = new Map<string, number>()
 let nextProjectId = 1
 
 function mockClient() {
@@ -86,7 +87,11 @@ async function handleQuery(sql: string, params: unknown[] = []) {
       .filter((row) => row.operator_id === operatorId)
       .map((row) => {
         const project = projects.get(row.project_id)!
-        return { ...project, role: row.role }
+        return {
+          ...project,
+          role: row.role,
+          connected_channel_count: channelCounts.get(row.project_id) ?? 0,
+        }
       })
     return { rows }
   }
@@ -119,6 +124,7 @@ describe('projects', () => {
     projects.clear()
     operatorProjects.length = 0
     sessions.clear()
+    channelCounts.clear()
     nextProjectId = 1
   })
 
@@ -182,6 +188,26 @@ describe('projects', () => {
       id: 'session-1',
       active_project_id: project.id,
     })
+  })
+
+  it('returns the connected channel count for each operator project', async () => {
+    const { createProject, listOperatorProjects } = await import('../app/lib/server/projects')
+
+    const first = await createProject({ operatorId: 'operator-1', name: 'Brand A' })
+    const second = await createProject({ operatorId: 'operator-1', name: 'Brand B' })
+
+    // Newly-created projects start at zero.
+    expect(first.connectedChannelCount).toBe(0)
+    expect(second.connectedChannelCount).toBe(0)
+
+    channelCounts.set(first.id, 2)
+    channelCounts.set(second.id, 1)
+
+    const refreshed = await listOperatorProjects('operator-1')
+    const refreshedFirst = refreshed.find((p) => p.id === first.id)!
+    const refreshedSecond = refreshed.find((p) => p.id === second.id)!
+    expect(refreshedFirst.connectedChannelCount).toBe(2)
+    expect(refreshedSecond.connectedChannelCount).toBe(1)
   })
 })
 

@@ -1,13 +1,20 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useServerFn } from '@tanstack/react-start'
 import { Bot, CheckCircle2, Link2, Send } from 'lucide-react'
+import { useState } from 'react'
 import { AiWorkspace } from '../../components/ai-workspace'
 import { AppearanceSettings } from '../../components/appearance-settings'
 import { AppLayout } from '../../components/app-layout'
+import { ConnectChannelsModal } from '../../components/connect-channels/connect-channels-modal'
+import { ProjectSwitcher } from '../../components/project-switcher'
 import { bootstrapQueryKey } from '../../lib/bootstrap-query'
+import { TOTAL_CHANNEL_SLOTS } from '../../lib/channel-catalog'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
+import { createProject, setActiveProject } from '../../server/projects'
 import type { getSettingsPageState } from '../../server/settings'
 import { ChannelsSection } from './channels-section'
 import { DevelopersSection } from './developers-section'
+import { ProjectsSection } from './projects-section'
 import { settingsPageQueryKey, settingsPageQueryOptions } from './settings-query'
 
 type SettingsPageState = Awaited<ReturnType<typeof getSettingsPageState>>
@@ -18,6 +25,10 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
     ...settingsPageQueryOptions(),
     initialData: initialState,
   })
+  const createProjectFn = useServerFn(createProject)
+  const setActiveProjectFn = useServerFn(setActiveProject)
+  const [channelsModalOpen, setChannelsModalOpen] = useState(false)
+
   const settings = pageState.settings
   const operatorName = pageState.operatorFirstName
     ? pageState.operatorFirstName
@@ -32,8 +43,49 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
     await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey, refetchType: 'all' })
   }
 
+  async function refreshAfterProjectChange(opts: { autoOpenIfEmpty: boolean }) {
+    // Refresh BOTH the settings page state (the source of truth for the
+    // ProjectsSection list + active project) and the bootstrap state (used by
+    // the dashboard topbar + ProjectSwitcher across routes).
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: settingsPageQueryKey, refetchType: 'all' }),
+      queryClient.invalidateQueries({ queryKey: bootstrapQueryKey, refetchType: 'all' }),
+    ])
+
+    if (opts.autoOpenIfEmpty) {
+      const refreshed = queryClient.getQueryData<SettingsPageState>(settingsPageQueryKey)
+      if ((refreshed?.connectedChannels ?? []).length === 0) {
+        setChannelsModalOpen(true)
+      }
+    }
+  }
+
+  async function onCreateProject(input: { name: string }) {
+    await createProjectFn({ data: input })
+    // New project becomes active and starts at zero channels, so always
+    // auto-open the modal to walk the operator straight into OAuth.
+    await refreshAfterProjectChange({ autoOpenIfEmpty: true })
+  }
+
+  async function onSwitchProject(projectId: string) {
+    await setActiveProjectFn({ data: { projectId } })
+    await refreshAfterProjectChange({ autoOpenIfEmpty: true })
+  }
+
   return (
-    <AppLayout operatorName={operatorName}>
+    <AppLayout
+      operatorName={operatorName}
+      projectSwitcher={
+        pageState.projects.length > 0 ? (
+          <ProjectSwitcher
+            activeProjectId={pageState.activeProjectId}
+            onSwitch={onSwitchProject}
+            projects={pageState.projects}
+            totalChannelSlots={TOTAL_CHANNEL_SLOTS}
+          />
+        ) : null
+      }
+    >
       <header className="topbar">
         <div>
           <p className="eyebrow">Settings</p>
@@ -60,6 +112,13 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
 
         <DevelopersSection isInstanceOwner={pageState.isInstanceOwner} />
 
+        <ProjectsSection
+          activeProjectId={pageState.activeProjectId}
+          onCreate={onCreateProject}
+          onSwitch={onSwitchProject}
+          projects={pageState.projects}
+        />
+
         <ChannelsSection
           activeProjectId={pageState.activeProjectId}
           connectedChannels={pageState.connectedChannels}
@@ -67,6 +126,13 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
       </div>
 
       <AppearanceSettings />
+
+      <ConnectChannelsModal
+        connectedChannels={pageState.connectedChannels}
+        onClose={() => setChannelsModalOpen(false)}
+        onContinue={() => setChannelsModalOpen(false)}
+        open={channelsModalOpen}
+      />
     </AppLayout>
   )
 }

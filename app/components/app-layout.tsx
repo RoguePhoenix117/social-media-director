@@ -25,20 +25,30 @@ export function AppLayout({
   children,
   operatorName,
   onLogout,
+  projectSwitcher,
 }: Readonly<{
   children: ReactNode
   operatorName?: string
   onLogout?: () => void
+  /**
+   * Optional slot for {@link ProjectSwitcher}. Rendered in the sidebar under
+   * the operator card (left/right sidebar variants) or in the top-nav
+   * actions row (top-nav variant). Routes that don't have a session-bound
+   * operator (e.g. template pages, setup) omit this prop.
+   */
+  projectSwitcher?: ReactNode
 }>) {
   const { colorScheme, layoutVariant } = useDesign()
   const shellClass = `director-shell ${colorScheme} ${layoutVariant}`
-  const sidebar = <Sidebar operatorName={operatorName} onLogout={onLogout} />
+  const sidebar = (
+    <Sidebar onLogout={onLogout} operatorName={operatorName} projectSwitcher={projectSwitcher} />
+  )
   const main = <main className="app-shell">{children}</main>
 
   if (layoutVariant === 'top-nav') {
     return (
       <div className={shellClass}>
-        <TopNav operatorName={operatorName} onLogout={onLogout} />
+        <TopNav onLogout={onLogout} operatorName={operatorName} projectSwitcher={projectSwitcher} />
         {main}
       </div>
     )
@@ -69,7 +79,12 @@ function Brand({ align = 'left' }: Readonly<{ align?: 'left' | 'right' }>) {
 function Sidebar({
   operatorName,
   onLogout,
-}: Readonly<{ operatorName?: string; onLogout?: () => void }>) {
+  projectSwitcher,
+}: Readonly<{
+  operatorName?: string
+  onLogout?: () => void
+  projectSwitcher?: ReactNode
+}>) {
   const { layoutVariant } = useDesign()
   const right = layoutVariant === 'sidebar-right'
 
@@ -92,6 +107,9 @@ function Sidebar({
       <div className="operator-card">
         <p className="eyebrow">Operator</p>
         <strong>{operatorName ?? 'Local operator'}</strong>
+        {projectSwitcher ? (
+          <div className="operator-card-switcher">{projectSwitcher}</div>
+        ) : null}
         <Link activeProps={{ className: 'active' }} to="/settings">
           <Settings aria-hidden="true" size={17} />
           Settings
@@ -108,7 +126,12 @@ function Sidebar({
 function TopNav({
   operatorName,
   onLogout,
-}: Readonly<{ operatorName?: string; onLogout?: () => void }>) {
+  projectSwitcher,
+}: Readonly<{
+  operatorName?: string
+  onLogout?: () => void
+  projectSwitcher?: ReactNode
+}>) {
   return (
     <header className="top-nav">
       <Brand />
@@ -121,6 +144,7 @@ function TopNav({
         ))}
       </nav>
       <div className="top-nav-actions">
+        {projectSwitcher}
         <Link activeProps={{ className: 'active' }} aria-label="Settings" to="/settings">
           <Settings aria-hidden="true" size={18} />
         </Link>

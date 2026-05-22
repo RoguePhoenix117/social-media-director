@@ -8,11 +8,13 @@ import { ChannelProgressButton } from '../../components/channel-progress-button'
 import { ConnectChannelsModal } from '../../components/connect-channels/connect-channels-modal'
 import { OnboardingWizard } from '../../components/onboarding/onboarding-wizard'
 import { LoginScreen } from '../../components/onboarding/login-screen'
+import { ProjectSwitcher } from '../../components/project-switcher'
 import {
   bootstrapQueryKey,
   bootstrapQueryOptions,
   type BootstrapState,
 } from '../../lib/bootstrap-query'
+import { TOTAL_CHANNEL_SLOTS } from '../../lib/channel-catalog'
 import { ONBOARDING_STEPS } from '../../lib/onboarding-steps'
 import {
   dismissOnboardingWizard,
@@ -25,8 +27,10 @@ import {
   completeChannelsStep,
   completeOnboarding,
   createProjectStep,
+  setActiveProject,
   type OnboardingStepResult,
 } from '../../server/projects'
+import { settingsPageQueryKey } from '../settings/settings-query'
 import { DashboardStatusGrid } from './dashboard-status-grid'
 import { DatabaseSetupScreen } from './database-setup-screen'
 import { ImportWorkspace } from './import-workspace'
@@ -59,6 +63,7 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
   const dismissOnboardingWizardFn = useServerFn(dismissOnboardingWizard)
   const loginOperatorFn = useServerFn(loginOperator)
   const logoutOperatorFn = useServerFn(logoutOperator)
+  const setActiveProjectFn = useServerFn(setActiveProject)
 
   const [channelsModalOpen, setChannelsModalOpen] = useState(false)
 
@@ -182,8 +187,33 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
     })
   }
 
+  async function onSwitchProject(projectId: string) {
+    const result = await setActiveProjectFn({ data: { projectId } })
+    applyOnboardingResult(result)
+    await queryClient.invalidateQueries({ queryKey: settingsPageQueryKey, refetchType: 'all' })
+    // Auto-open Connect Channels for any project that still needs OAuth — covers
+    // both the "just created a 2nd project" UX and switching back to a project
+    // whose channels haven't been connected yet.
+    if (result.connectedChannels.length === 0) {
+      setChannelsModalOpen(true)
+    }
+  }
+
   return (
-    <AppLayout onLogout={() => void onLogout()} operatorName={displayName}>
+    <AppLayout
+      onLogout={() => void onLogout()}
+      operatorName={displayName}
+      projectSwitcher={
+        authState.projects.length > 0 ? (
+          <ProjectSwitcher
+            activeProjectId={authState.activeProjectId}
+            onSwitch={onSwitchProject}
+            projects={authState.projects}
+            totalChannelSlots={TOTAL_CHANNEL_SLOTS}
+          />
+        ) : null
+      }
+    >
       <header className="topbar">
         <div>
           <p className="eyebrow">MVP V1</p>

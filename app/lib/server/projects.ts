@@ -13,6 +13,12 @@ export type ProjectRole = 'owner'
 
 export type OperatorProject = Project & {
   role: ProjectRole
+  /**
+   * Live count of OAuth-connected channels (rows in `provider_accounts`)
+   * scoped to this project. Used by the project switcher badge in the app
+   * layout and by Settings → Projects.
+   */
+  connectedChannelCount: number
 }
 
 type ProjectRow = {
@@ -24,7 +30,10 @@ type ProjectRow = {
   updated_at: string
 }
 
-type OperatorProjectRow = ProjectRow & { role: string }
+type OperatorProjectRow = ProjectRow & {
+  role: string
+  connected_channel_count: string | number | null
+}
 
 export async function createProject(input: {
   operatorId: string
@@ -55,7 +64,11 @@ export async function createProject(input: {
     )
 
     await client.query('commit')
-    return mapOperatorProjectRow({ ...project, role: 'owner' })
+    return mapOperatorProjectRow({
+      ...project,
+      role: 'owner',
+      connected_channel_count: 0,
+    })
   } catch (error) {
     await client.query('rollback')
     throw error
@@ -73,9 +86,16 @@ export async function listOperatorProjects(operatorId: string): Promise<Operator
        projects.channels_onboarding_completed,
        projects.created_at,
        projects.updated_at,
-       operator_projects.role
+       operator_projects.role,
+       coalesce(channel_counts.count, 0) as connected_channel_count
      from projects
      join operator_projects on operator_projects.project_id = projects.id
+     left join (
+       select project_id, count(*)::int as count
+       from provider_accounts
+       where project_id is not null
+       group by project_id
+     ) as channel_counts on channel_counts.project_id = projects.id
      where operator_projects.operator_id = $1
      order by projects.created_at asc`,
     [operatorId],
@@ -177,5 +197,6 @@ function mapOperatorProjectRow(row: OperatorProjectRow): OperatorProject {
   return {
     ...mapProjectRow(row),
     role: row.role === 'owner' ? 'owner' : 'owner',
+    connectedChannelCount: Number(row.connected_channel_count ?? 0),
   }
 }

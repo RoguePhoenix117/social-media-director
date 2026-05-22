@@ -16,6 +16,16 @@ import {
 import { requireOperatorSession } from '../lib/server/session'
 import { getPublicSettingsStatus, type PublicSettingsStatus } from '../lib/server/settings'
 
+const projectNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Project name is required.')
+  .max(80, 'Keep the name under 80 characters.')
+
+const setActiveProjectInputSchema = z.object({
+  projectId: z.string().uuid('Invalid project id.'),
+})
+
 /**
  * Onboarding-aware server entry points for project lifecycle. These wrap the
  * lib-level helpers in {@link ../lib/server/projects} and additionally
@@ -28,7 +38,11 @@ import { getPublicSettingsStatus, type PublicSettingsStatus } from '../lib/serve
  */
 
 const createProjectStepInputSchema = z.object({
-  name: z.string().trim().min(1, 'Project name is required.').max(80),
+  name: projectNameSchema,
+})
+
+const createProjectInputSchema = z.object({
+  name: projectNameSchema,
 })
 
 export type OnboardingStepResult = {
@@ -107,6 +121,58 @@ export const completeOnboarding = createServerFn({ method: 'POST' }).handler(
     })
   },
 )
+
+/**
+ * Post-onboarding project creation (Settings → Projects, PR6).
+ *
+ * Mirrors {@link createProjectStep} but does **not** touch the operator's
+ * onboarding step counter — the operator is already past onboarding. The
+ * newly-created project becomes the active project so the dashboard and
+ * Connect Channels modal can switch context atomically.
+ */
+export const createProject = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => createProjectInputSchema.parse(input))
+  .handler(async ({ data }): Promise<OnboardingStepResult> => {
+    const session = await requireOperatorSession()
+
+    const project = await createProjectRecord({
+      operatorId: session.operatorId,
+      name: data.name,
+    })
+
+    await setActiveProjectInSession({
+      sessionId: session.sessionId,
+      operatorId: session.operatorId,
+      projectId: project.id,
+    })
+
+    return buildOnboardingStepResult({
+      operatorId: session.operatorId,
+      activeProjectId: project.id,
+    })
+  })
+
+/**
+ * Switches the operator's active project (project switcher in the app
+ * layout). Returns the same shape as the onboarding step result so the
+ * client can reuse the existing bootstrap-cache update helper.
+ */
+export const setActiveProject = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => setActiveProjectInputSchema.parse(input))
+  .handler(async ({ data }): Promise<OnboardingStepResult> => {
+    const session = await requireOperatorSession()
+
+    await setActiveProjectInSession({
+      sessionId: session.sessionId,
+      operatorId: session.operatorId,
+      projectId: data.projectId,
+    })
+
+    return buildOnboardingStepResult({
+      operatorId: session.operatorId,
+      activeProjectId: data.projectId,
+    })
+  })
 
 async function advanceOnboardingStep(operatorId: string, step: number) {
   await getDb().query(
