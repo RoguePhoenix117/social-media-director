@@ -6,8 +6,8 @@
  * the grid keeps visual parity with the Postiz-style reference UI while we
  * ship one provider at a time.
  *
- * PR4: X active. LinkedIn shown as "Coming soon" until PR5 lands its OAuth
- * flow — flip its status to `active` there.
+ * PR5: X + LinkedIn active. All other tiles render as "Coming soon" so the
+ * grid keeps visual parity with the Postiz reference UI.
  */
 
 export type ChannelStatus = 'active' | 'coming_soon'
@@ -24,7 +24,13 @@ export type ChannelCatalogEntry = {
 
 export const CHANNEL_CATALOG: ReadonlyArray<ChannelCatalogEntry> = [
   { id: 'x', label: 'X', status: 'active', iconKey: 'x', startHref: '/integrations/social/x' },
-  { id: 'linkedin', label: 'LinkedIn', status: 'coming_soon', iconKey: 'linkedin' },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    status: 'active',
+    iconKey: 'linkedin',
+    startHref: '/integrations/social/linkedin',
+  },
   { id: 'linkedin-page', label: 'LinkedIn Page', status: 'coming_soon', iconKey: 'linkedin' },
   { id: 'reddit', label: 'Reddit', status: 'coming_soon', iconKey: 'reddit' },
   { id: 'instagram-fb', label: 'Instagram (Facebook Business)', status: 'coming_soon', iconKey: 'instagram' },

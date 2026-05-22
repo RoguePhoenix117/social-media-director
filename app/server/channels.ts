@@ -5,6 +5,13 @@ import { z } from 'zod'
 import { encryptSecret } from '../lib/server/crypto'
 import { logError, logInfo } from '../lib/server/logger'
 import {
+  buildLinkedInAuthorizeUrl,
+  exchangeLinkedInCode,
+  fetchLinkedInProfile,
+  getLinkedInCallbackUrl,
+  requireLinkedInOAuthConfig,
+} from '../lib/server/oauth/linkedin'
+import {
   buildXAuthorizeUrl,
   exchangeXCode,
   fetchXProfile,
@@ -27,9 +34,10 @@ import { requireOperatorSession } from '../lib/server/session'
 /**
  * Server entry points for project channels.
  *
- * `startXOAuth` and `completeXOAuth` orchestrate the X OAuth 2.0 PKCE flow.
- * Each handler throws `redirect()` so the route loaders that call them just
- * need `loader: () => startXOAuth()` — no manual response wiring.
+ * `start{Provider}OAuth` and `complete{Provider}OAuth` orchestrate the OAuth
+ * authorization-code flows. Each handler throws `redirect()` so the route
+ * loaders that call them just need `loader: () => startXOAuth()` — no manual
+ * response wiring.
  *
  * `listProjectChannels` is the public read API used for testing in PR3 and
  * by the Connect Channels UI in PR4.
@@ -168,6 +176,127 @@ export const completeXOAuth = createServerFn({ method: 'GET' })
     throw redirect({
       to: '/integrations/social/adding',
       search: { provider: 'x', next: stateRecord.redirectAfter ?? '/' } as never,
+    })
+  })
+
+export const startLinkedInOAuth = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<never> => {
+    const session = await requireOperatorSession()
+    if (!session.activeProjectId) {
+      throw new Error('Create a project before connecting channels.')
+    }
+
+    const config = await requireLinkedInOAuthConfig()
+    const existing = await getProjectChannel(session.activeProjectId, 'linkedin')
+    if (existing) {
+      throw new Error(
+        'LinkedIn is already connected for this project. Disconnect it first to reconnect.',
+      )
+    }
+
+    const origin = resolveCurrentOrigin()
+    const redirectUri = getLinkedInCallbackUrl(origin)
+
+    await purgeExpiredOAuthStates().catch((error) => {
+      logError('oauth.state.purge_failed', error)
+    })
+
+    const { stateToken } = await createOAuthState({
+      operatorId: session.operatorId,
+      projectId: session.activeProjectId,
+      provider: 'linkedin',
+    })
+
+    const authorizeUrl = buildLinkedInAuthorizeUrl({
+      clientId: config.clientId,
+      redirectUri,
+      state: stateToken,
+    })
+
+    logInfo('oauth.linkedin.start', {
+      projectId: session.activeProjectId,
+      operatorId: session.operatorId,
+    })
+
+    throw redirect({ href: authorizeUrl })
+  },
+)
+
+export const completeLinkedInOAuth = createServerFn({ method: 'GET' })
+  .inputValidator((input: unknown) => callbackSchema.parse(input ?? {}))
+  .handler(async ({ data }): Promise<never> => {
+    const session = await requireOperatorSession()
+
+    if (data.error) {
+      logInfo('oauth.linkedin.callback.provider_error', {
+        error: data.error,
+        description: data.error_description ?? null,
+      })
+      throw redirect({
+        to: '/',
+        search: { channel_error: data.error_description || data.error || 'unknown_error' } as never,
+      })
+    }
+
+    if (!data.code || !data.state) {
+      throw new Error('OAuth callback is missing the authorization code or state.')
+    }
+
+    const stateRecord = await consumeOAuthState({
+      stateToken: data.state,
+      expectedOperatorId: session.operatorId,
+      expectedProvider: 'linkedin',
+    })
+    if (!stateRecord) {
+      throw new Error('OAuth state is invalid or expired. Please start the connection again.')
+    }
+    if (stateRecord.projectId !== session.activeProjectId) {
+      throw new Error('OAuth state belongs to a different project. Please start again.')
+    }
+
+    const config = await requireLinkedInOAuthConfig()
+    const origin = resolveCurrentOrigin()
+    const redirectUri = getLinkedInCallbackUrl(origin)
+
+    try {
+      const tokens = await exchangeLinkedInCode({
+        code: data.code,
+        redirectUri,
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+      })
+
+      const profile = await fetchLinkedInProfile({ accessToken: tokens.accessToken })
+
+      await upsertProviderAccount({
+        projectId: stateRecord.projectId,
+        provider: 'linkedin',
+        externalAccountId: profile.id,
+        displayName: profile.name,
+        username: profile.email ?? null,
+        profileImageUrl: profile.pictureUrl,
+        authorUrn: profile.authorUrn,
+        accessTokenCiphertext: encryptSecret(tokens.accessToken),
+        refreshTokenCiphertext: tokens.refreshToken ? encryptSecret(tokens.refreshToken) : null,
+        tokenExpiresAt: tokens.expiresAt,
+      })
+
+      logInfo('oauth.linkedin.callback.success', {
+        projectId: stateRecord.projectId,
+        operatorId: session.operatorId,
+        externalAccountId: profile.id,
+      })
+    } catch (error) {
+      logError('oauth.linkedin.callback.failure', error, {
+        projectId: stateRecord.projectId,
+        operatorId: session.operatorId,
+      })
+      throw error
+    }
+
+    throw redirect({
+      to: '/integrations/social/adding',
+      search: { provider: 'linkedin', next: stateRecord.redirectAfter ?? '/' } as never,
     })
   })
 

@@ -18,7 +18,9 @@ import { Route as DraftRouteImport } from './routes/draft'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as IntegrationsSocialAddingRouteImport } from './routes/integrations/social/adding'
 import { Route as IntegrationsSocialXIndexRouteImport } from './routes/integrations/social/x/index'
+import { Route as IntegrationsSocialLinkedinIndexRouteImport } from './routes/integrations/social/linkedin/index'
 import { Route as IntegrationsSocialXCallbackRouteImport } from './routes/integrations/social/x/callback'
+import { Route as IntegrationsSocialLinkedinCallbackRouteImport } from './routes/integrations/social/linkedin/callback'
 
 const StatsRoute = StatsRouteImport.update({
   id: '/stats',
@@ -67,10 +69,22 @@ const IntegrationsSocialXIndexRoute =
     path: '/integrations/social/x/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const IntegrationsSocialLinkedinIndexRoute =
+  IntegrationsSocialLinkedinIndexRouteImport.update({
+    id: '/integrations/social/linkedin/',
+    path: '/integrations/social/linkedin/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const IntegrationsSocialXCallbackRoute =
   IntegrationsSocialXCallbackRouteImport.update({
     id: '/integrations/social/x/callback',
     path: '/integrations/social/x/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const IntegrationsSocialLinkedinCallbackRoute =
+  IntegrationsSocialLinkedinCallbackRouteImport.update({
+    id: '/integrations/social/linkedin/callback',
+    path: '/integrations/social/linkedin/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -83,7 +97,9 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
   '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/linkedin/callback': typeof IntegrationsSocialLinkedinCallbackRoute
   '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/linkedin/': typeof IntegrationsSocialLinkedinIndexRoute
   '/integrations/social/x/': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRoutesByTo {
@@ -95,7 +111,9 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
   '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/linkedin/callback': typeof IntegrationsSocialLinkedinCallbackRoute
   '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/linkedin': typeof IntegrationsSocialLinkedinIndexRoute
   '/integrations/social/x': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRoutesById {
@@ -108,7 +126,9 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/stats': typeof StatsRoute
   '/integrations/social/adding': typeof IntegrationsSocialAddingRoute
+  '/integrations/social/linkedin/callback': typeof IntegrationsSocialLinkedinCallbackRoute
   '/integrations/social/x/callback': typeof IntegrationsSocialXCallbackRoute
+  '/integrations/social/linkedin/': typeof IntegrationsSocialLinkedinIndexRoute
   '/integrations/social/x/': typeof IntegrationsSocialXIndexRoute
 }
 export interface FileRouteTypes {
@@ -122,7 +142,9 @@ export interface FileRouteTypes {
     | '/setup'
     | '/stats'
     | '/integrations/social/adding'
+    | '/integrations/social/linkedin/callback'
     | '/integrations/social/x/callback'
+    | '/integrations/social/linkedin/'
     | '/integrations/social/x/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -134,7 +156,9 @@ export interface FileRouteTypes {
     | '/setup'
     | '/stats'
     | '/integrations/social/adding'
+    | '/integrations/social/linkedin/callback'
     | '/integrations/social/x/callback'
+    | '/integrations/social/linkedin'
     | '/integrations/social/x'
   id:
     | '__root__'
@@ -146,7 +170,9 @@ export interface FileRouteTypes {
     | '/setup'
     | '/stats'
     | '/integrations/social/adding'
+    | '/integrations/social/linkedin/callback'
     | '/integrations/social/x/callback'
+    | '/integrations/social/linkedin/'
     | '/integrations/social/x/'
   fileRoutesById: FileRoutesById
 }
@@ -159,7 +185,9 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   StatsRoute: typeof StatsRoute
   IntegrationsSocialAddingRoute: typeof IntegrationsSocialAddingRoute
+  IntegrationsSocialLinkedinCallbackRoute: typeof IntegrationsSocialLinkedinCallbackRoute
   IntegrationsSocialXCallbackRoute: typeof IntegrationsSocialXCallbackRoute
+  IntegrationsSocialLinkedinIndexRoute: typeof IntegrationsSocialLinkedinIndexRoute
   IntegrationsSocialXIndexRoute: typeof IntegrationsSocialXIndexRoute
 }
 
@@ -228,11 +256,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IntegrationsSocialXIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/integrations/social/linkedin/': {
+      id: '/integrations/social/linkedin/'
+      path: '/integrations/social/linkedin'
+      fullPath: '/integrations/social/linkedin/'
+      preLoaderRoute: typeof IntegrationsSocialLinkedinIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/integrations/social/x/callback': {
       id: '/integrations/social/x/callback'
       path: '/integrations/social/x/callback'
       fullPath: '/integrations/social/x/callback'
       preLoaderRoute: typeof IntegrationsSocialXCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/social/linkedin/callback': {
+      id: '/integrations/social/linkedin/callback'
+      path: '/integrations/social/linkedin/callback'
+      fullPath: '/integrations/social/linkedin/callback'
+      preLoaderRoute: typeof IntegrationsSocialLinkedinCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -247,7 +289,10 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   StatsRoute: StatsRoute,
   IntegrationsSocialAddingRoute: IntegrationsSocialAddingRoute,
+  IntegrationsSocialLinkedinCallbackRoute:
+    IntegrationsSocialLinkedinCallbackRoute,
   IntegrationsSocialXCallbackRoute: IntegrationsSocialXCallbackRoute,
+  IntegrationsSocialLinkedinIndexRoute: IntegrationsSocialLinkedinIndexRoute,
   IntegrationsSocialXIndexRoute: IntegrationsSocialXIndexRoute,
 }
 export const routeTree = rootRouteImport

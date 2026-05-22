@@ -37,18 +37,20 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `/settings` | `features/settings/settings-page.tsx` |
 | `/integrations/social/x` | `routes/integrations/social/x/index.tsx` — calls `startXOAuth()` from loader (`x/index.tsx` not `x.tsx` so the sibling `callback` route does not inherit the redirect) |
 | `/integrations/social/x/callback` | `routes/integrations/social/x/callback.tsx` — calls `completeXOAuth({ code, state })` from loader |
+| `/integrations/social/linkedin` | `routes/integrations/social/linkedin/index.tsx` — calls `startLinkedInOAuth()` from loader (same `index.tsx` pattern as X) |
+| `/integrations/social/linkedin/callback` | `routes/integrations/social/linkedin/callback.tsx` — calls `completeLinkedInOAuth({ code, state })` from loader |
 | `/integrations/social/adding` | `routes/integrations/social/adding.tsx` — post-callback "Adding Channel…" interstitial |
 
 ## Server functions (`app/server/`)
 
 | File | Domain |
 |------|--------|
-| `dashboard.ts` | Bootstrap, auth, import, publish (`publishVariant` reads X token from `provider_accounts`; LinkedIn throws until PR5) |
+| `dashboard.ts` | Bootstrap, auth, import, publish (`publishVariant` reads X + LinkedIn tokens from `provider_accounts`; LinkedIn `author_urn` sourced from the channel row) |
 | `ai-workspace.ts` | AI connection test/save |
 | `settings.ts` | Settings page state aggregator (read-only since PR4 removed legacy paste) |
 | `setup.ts` | Instance Setup Mode + Developer settings (`getInstanceSetupStatus`, `saveInstanceSetup`, `getDeveloperSettings`, `saveDeveloperSettings`) |
 | `projects.ts` | Onboarding-aware project lifecycle: `createProjectStep`, `completeChannelsStep`, `completeOnboarding` (PR4) |
-| `channels.ts` | `listProjectChannels`, `startXOAuth`, `completeXOAuth` (PR3); LinkedIn variants land in PR5 |
+| `channels.ts` | `listProjectChannels`, `startXOAuth`/`completeXOAuth` (PR3), `startLinkedInOAuth`/`completeLinkedInOAuth` (PR5) |
 
 ## Server libraries (`app/lib/server/`)
 
@@ -65,7 +67,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `setup-helpers.ts` | Pure helpers shared by Setup Mode + Settings → Developers (`buildSaveInput`, `toProviderStatus`, `buildCallbackUrls`, `computeSetupKeyState`) |
 | `oauth/state.ts` | OAuth state row CRUD with PKCE verifier + S256 challenge (`createOAuthState`, `consumeOAuthState`, `purgeExpiredOAuthStates`) |
 | `oauth/x.ts` | X (Twitter) OAuth 2.0 PKCE primitives (`buildXAuthorizeUrl`, `exchangeXCode`, `refreshXToken`, `fetchXProfile`, `getXCallbackUrl`, `requireXOAuthConfig`, `X_OAUTH_SCOPES`) |
-| `oauth/linkedin.ts` | LinkedIn OAuth (PR5) |
+| `oauth/linkedin.ts` | LinkedIn OAuth 2.0 primitives (`buildLinkedInAuthorizeUrl`, `exchangeLinkedInCode`, `refreshLinkedInToken`, `fetchLinkedInProfile`, `getLinkedInCallbackUrl`, `requireLinkedInOAuthConfig`, `LINKEDIN_OAUTH_SCOPES`). OIDC `sub` → `urn:li:person:{sub}` for `provider_accounts.author_urn`. No PKCE — LinkedIn token endpoint takes the client secret in the form body. |
 
 ## Schemas & queries (`app/lib/`)
 
@@ -75,7 +77,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `password-schema.ts` | Shared password validation |
 | `bootstrap-query.ts` | App bootstrap React Query options + `BootstrapState` type (includes `instanceConfigured`, `activeProjectId`, `projects`, `connectedChannels`, `isInstanceOwner`) |
 | `onboarding-steps.ts` | Canonical step IDs/numbers (`ONBOARDING_STEPS`); use instead of magic 1–5 |
-| `channel-catalog.ts` | `CHANNEL_CATALOG` (X active, LinkedIn coming-soon until PR5, 20+ disabled tiles) + `TOTAL_CHANNEL_SLOTS` |
+| `channel-catalog.ts` | `CHANNEL_CATALOG` (X + LinkedIn active, 20+ "coming soon" tiles) + `TOTAL_CHANNEL_SLOTS` |
 | `query.ts` | Shared query client helpers |
 | `domain/providers.ts` | Provider types |
 | `domain/validation.ts` | Post validation per provider |

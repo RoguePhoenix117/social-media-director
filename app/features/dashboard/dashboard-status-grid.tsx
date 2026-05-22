@@ -78,7 +78,7 @@ function buildCards(settings: PublicSettingsStatus | null, draftCount: number): 
     },
     {
       label: 'LinkedIn',
-      value: settings?.linkedinConfigured ? 'Connected' : 'Coming in PR5',
+      value: settings?.linkedinConfigured ? 'Connected' : 'Not connected',
       isReady: Boolean(settings?.linkedinConfigured),
       icon: Link2,
     },

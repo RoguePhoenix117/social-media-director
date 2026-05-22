@@ -283,10 +283,10 @@ export const publishVariant = createServerFn({ method: 'POST' })
 
     const channel = await getProjectChannel(session.activeProjectId, data.provider)
     if (!channel) {
-      if (data.provider === 'linkedin') {
-        throw new Error('LinkedIn OAuth is coming in the next release. Connect X for now.')
-      }
-      throw new Error('X is not connected for this project. Open the Connect Channels modal first.')
+      const label = data.provider === 'linkedin' ? 'LinkedIn' : 'X'
+      throw new Error(
+        `${label} is not connected for this project. Open the Connect Channels modal first.`,
+      )
     }
 
     const adapter = getProviderAdapter(data.provider, {
