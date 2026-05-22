@@ -29,6 +29,8 @@ import {
   upsertProviderAccount,
   type PublicProjectChannel,
 } from '../lib/server/provider-accounts'
+import { requireActiveProjectId, setActiveProject } from '../lib/server/projects'
+import { resolveAppOrigin } from '../lib/local-dev-origin'
 import { requireOperatorSession } from '../lib/server/session'
 
 /**
@@ -53,22 +55,24 @@ const callbackSchema = z.object({
 export const listProjectChannels = createServerFn({ method: 'GET' }).handler(
   async (): Promise<{ activeProjectId: string | null; channels: PublicProjectChannel[] }> => {
     const session = await requireOperatorSession()
-    if (!session.activeProjectId) return { activeProjectId: null, channels: [] }
-    return {
-      activeProjectId: session.activeProjectId,
-      channels: await listPublicProjectChannels(session.activeProjectId),
+    try {
+      const activeProjectId = await requireActiveProjectId(session)
+      return {
+        activeProjectId,
+        channels: await listPublicProjectChannels(activeProjectId),
+      }
+    } catch {
+      return { activeProjectId: null, channels: [] }
     }
   },
 )
 
 export const startXOAuth = createServerFn({ method: 'GET' }).handler(async (): Promise<never> => {
   const session = await requireOperatorSession()
-  if (!session.activeProjectId) {
-    throw new Error('Create a project before connecting channels.')
-  }
+  const activeProjectId = await requireActiveProjectId(session)
 
   const config = await requireXOAuthConfig()
-  const existing = await getProjectChannel(session.activeProjectId, 'x')
+  const existing = await getProjectChannel(activeProjectId, 'x')
   if (existing) {
     throw new Error('X is already connected for this project. Disconnect it first to reconnect.')
   }
@@ -82,7 +86,7 @@ export const startXOAuth = createServerFn({ method: 'GET' }).handler(async (): P
 
   const { stateToken, codeChallenge } = await createOAuthState({
     operatorId: session.operatorId,
-    projectId: session.activeProjectId,
+    projectId: activeProjectId,
     provider: 'x',
   })
 
@@ -94,7 +98,7 @@ export const startXOAuth = createServerFn({ method: 'GET' }).handler(async (): P
   })
 
   logInfo('oauth.x.start', {
-    projectId: session.activeProjectId,
+    projectId: activeProjectId,
     operatorId: session.operatorId,
   })
 
@@ -129,9 +133,12 @@ export const completeXOAuth = createServerFn({ method: 'GET' })
     if (!stateRecord) {
       throw new Error('OAuth state is invalid or expired. Please start the connection again.')
     }
-    if (stateRecord.projectId !== session.activeProjectId) {
-      throw new Error('OAuth state belongs to a different project. Please start again.')
-    }
+
+    await setActiveProject({
+      sessionId: session.sessionId,
+      operatorId: session.operatorId,
+      projectId: stateRecord.projectId,
+    })
 
     const config = await requireXOAuthConfig()
     const origin = resolveCurrentOrigin()
@@ -182,12 +189,10 @@ export const completeXOAuth = createServerFn({ method: 'GET' })
 export const startLinkedInOAuth = createServerFn({ method: 'GET' }).handler(
   async (): Promise<never> => {
     const session = await requireOperatorSession()
-    if (!session.activeProjectId) {
-      throw new Error('Create a project before connecting channels.')
-    }
+    const activeProjectId = await requireActiveProjectId(session)
 
     const config = await requireLinkedInOAuthConfig()
-    const existing = await getProjectChannel(session.activeProjectId, 'linkedin')
+    const existing = await getProjectChannel(activeProjectId, 'linkedin')
     if (existing) {
       throw new Error(
         'LinkedIn is already connected for this project. Disconnect it first to reconnect.',
@@ -203,7 +208,7 @@ export const startLinkedInOAuth = createServerFn({ method: 'GET' }).handler(
 
     const { stateToken } = await createOAuthState({
       operatorId: session.operatorId,
-      projectId: session.activeProjectId,
+      projectId: activeProjectId,
       provider: 'linkedin',
     })
 
@@ -214,7 +219,7 @@ export const startLinkedInOAuth = createServerFn({ method: 'GET' }).handler(
     })
 
     logInfo('oauth.linkedin.start', {
-      projectId: session.activeProjectId,
+      projectId: activeProjectId,
       operatorId: session.operatorId,
     })
 
@@ -250,9 +255,12 @@ export const completeLinkedInOAuth = createServerFn({ method: 'GET' })
     if (!stateRecord) {
       throw new Error('OAuth state is invalid or expired. Please start the connection again.')
     }
-    if (stateRecord.projectId !== session.activeProjectId) {
-      throw new Error('OAuth state belongs to a different project. Please start again.')
-    }
+
+    await setActiveProject({
+      sessionId: session.sessionId,
+      operatorId: session.operatorId,
+      projectId: stateRecord.projectId,
+    })
 
     const config = await requireLinkedInOAuthConfig()
     const origin = resolveCurrentOrigin()
@@ -303,8 +311,8 @@ export const completeLinkedInOAuth = createServerFn({ method: 'GET' })
 function resolveCurrentOrigin(): string {
   try {
     const url = getRequestUrl()
-    return `${url.protocol}//${url.host}`
+    return resolveAppOrigin(`${url.protocol}//${url.host}`)
   } catch {
-    return process.env.APP_ORIGIN?.trim() || 'http://localhost:5173'
+    return resolveAppOrigin()
   }
 }

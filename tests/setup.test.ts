@@ -3,29 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 const originalSetupKey = process.env.INSTANCE_SETUP_KEY
 
 describe('buildSaveInput', () => {
-  it('drops env-sourced provider fields from the save payload', async () => {
-    const { buildSaveInput } = await import('../app/lib/server/setup-helpers')
-
-    const result = buildSaveInput(
-      {
-        x: { clientId: 'env-x', clientSecret: 'env-x-secret', source: 'env' },
-        linkedin: { clientId: 'db-li', clientSecret: 'db-li-secret', source: 'db' },
-      },
-      {
-        xClientId: 'attempted-override',
-        xClientSecret: 'attempted-secret',
-        linkedinClientId: 'new-li',
-        linkedinClientSecret: 'new-li-secret',
-      },
-    )
-
-    expect(result).toEqual({
-      linkedinClientId: 'new-li',
-      linkedinClientSecret: 'new-li-secret',
-    })
-  })
-
-  it('accepts writes when no env override is present', async () => {
+  it('accepts all provider fields when starting from empty config', async () => {
     const { buildSaveInput } = await import('../app/lib/server/setup-helpers')
 
     const result = buildSaveInput(
@@ -50,8 +28,25 @@ describe('buildSaveInput', () => {
     const { buildSaveInput } = await import('../app/lib/server/setup-helpers')
 
     const result = buildSaveInput(
-      { x: { clientId: 'db-x', clientSecret: 'db-x-secret', source: 'db' }, linkedin: null },
+      {
+        x: { clientId: 'env-x', clientSecret: 'env-x-secret', source: 'env' },
+        linkedin: null,
+      },
       { xClientId: 'updated-x' },
+    )
+
+    expect(result).toEqual({ xClientId: 'updated-x' })
+  })
+
+  it('drops blank secrets so existing .env values are preserved', async () => {
+    const { buildSaveInput } = await import('../app/lib/server/setup-helpers')
+
+    const result = buildSaveInput(
+      {
+        x: { clientId: 'env-x', clientSecret: 'env-x-secret', source: 'env' },
+        linkedin: null,
+      },
+      { xClientId: 'updated-x', xClientSecret: '   ' },
     )
 
     expect(result).toEqual({ xClientId: 'updated-x' })
@@ -86,6 +81,14 @@ describe('buildCallbackUrls', () => {
     expect(buildCallbackUrls('https://app.example.com')).toEqual({
       x: 'https://app.example.com/integrations/social/x/callback',
       linkedin: 'https://app.example.com/integrations/social/linkedin/callback',
+    })
+  })
+
+  it('uses 127.0.0.1 instead of localhost for local dev', async () => {
+    const { buildCallbackUrls } = await import('../app/lib/server/setup-helpers')
+    expect(buildCallbackUrls('http://localhost:5174')).toEqual({
+      x: 'http://127.0.0.1:5174/integrations/social/x/callback',
+      linkedin: 'http://127.0.0.1:5174/integrations/social/linkedin/callback',
     })
   })
 })

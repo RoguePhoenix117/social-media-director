@@ -1,3 +1,4 @@
+import { sortOpenAiModelsForSocialPosts } from '../ai/recommended-models'
 import { logInfo } from './logger'
 
 export async function listOpenAiModels(apiKey: string) {
@@ -24,7 +25,7 @@ export async function listOpenAiModels(apiKey: string) {
     throw new Error('OpenAI returned no usable text models for this key.')
   }
 
-  return modelIds
+  return sortOpenAiModelsForSocialPosts(modelIds)
 }
 
 function isUsefulTextModel(id: string) {

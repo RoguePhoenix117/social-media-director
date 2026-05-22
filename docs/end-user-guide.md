@@ -1,8 +1,26 @@
 # End-user guide
 
-Audience: the operator — the person who actually drafts and publishes posts. If you're standing up the instance for the first time, start with [developer-oauth-setup.md](./developer-oauth-setup.md) instead.
+Audience: the **operator** — the person who drafts and publishes posts. If you're standing up the instance for the first time, start with [developer-oauth-setup.md](./developer-oauth-setup.md) instead.
 
-This guide walks through the everyday flow: sign up, create a project, connect channels, draft a post, publish. No tokens, no API keys, no copy-pasting from developer portals — every connection happens via a regular OAuth consent screen.
+This guide walks through the everyday flow: sign up, create a project, connect channels, draft a post, publish.
+
+## OAuth only — no developer portals, no tokens to paste
+
+As an operator you **never**:
+
+- visit [console.x.com](https://console.x.com/) or [docs.x.com](https://docs.x.com/overview)
+- create an X Developer app or LinkedIn developer app
+- copy Client ID, Client Secret, Bearer Token, or Access Token into this app
+
+Connecting a channel is always the same:
+
+1. Open **Connect Channels** in this app
+2. Click **X** or **LinkedIn**
+3. Sign in on the **official** X or LinkedIn consent screen (if not already signed in)
+4. Click **Authorize** / **Allow**
+5. Return here — your profile appears under Connected Channels
+
+The deployer already registered the app; you are only granting permission for **your** account on **this** project.
 
 ---
 
@@ -31,8 +49,8 @@ The wizard prefills the first project's name as `default-project`. You can renam
 
 The wizard auto-opens the **Connect Channels** modal once you have a project. From here:
 
-- Click the **X** tile to start an X OAuth flow. You'll be redirected to X's official consent screen, click **Authorize app**, and X redirects you back. The app shows an "Adding Channel…" interstitial while it stores your encrypted access token, then drops you back at the modal with the X tile checked.
-- Click the **LinkedIn** tile to do the same for LinkedIn.
+- Click the **X** tile — you'll leave this app briefly, sign in on X if needed, and approve **Authorize app** on X's official consent screen. No developer console, no tokens to copy.
+- Click the **LinkedIn** tile — same flow on LinkedIn's consent screen.
 
 You'll see your connected accounts listed at the top of the modal with profile picture, display name, and handle. The sidebar / topbar shows a `N/2 Channels` progress button — click it any time to reopen the modal.
 

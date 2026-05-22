@@ -81,7 +81,7 @@ export function ProjectSwitcher({
         <span className="project-switcher-name">{active.name}</span>
         <span
           className={
-            active.connectedChannelCount >= totalChannelSlots
+            totalChannelSlots > 0 && active.connectedChannelCount >= totalChannelSlots
               ? 'project-switcher-badge project-switcher-badge--complete'
               : 'project-switcher-badge'
           }

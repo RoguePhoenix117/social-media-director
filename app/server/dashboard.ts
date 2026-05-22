@@ -11,12 +11,16 @@ import { validateProviderPayload } from '../lib/domain/validation'
 import { getProviderAdapter } from '../lib/providers'
 import { getCodexCliStatus, type CodexCliStatus } from '../lib/server/codex-cli'
 import { decryptSecret, hashPassword, verifyPassword } from '../lib/server/crypto'
-import { isInstanceConfigured } from '../lib/server/instance-config'
+import { isInstanceConfigured, getInstanceOAuthProviders } from '../lib/server/instance-config'
 import { logError, logInfo } from '../lib/server/logger'
 import {
   listOperatorProjects,
+  pickActiveProjectId,
+  requireActiveProjectId,
+  setActiveProject,
   type OperatorProject,
 } from '../lib/server/projects'
+import { ONBOARDING_STEPS } from '../lib/onboarding-steps'
 import {
   getProjectChannel,
   listPublicProjectChannels,
@@ -58,6 +62,7 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
         settings: null,
         codexCli: null,
         instanceConfigured: false,
+        instanceOAuthProviders: { x: false, linkedin: false },
         isInstanceOwner: false,
         activeProjectId: null,
         projects: [],
@@ -78,6 +83,7 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
   })
 
   const instanceConfigured = await isInstanceConfigured()
+  const instanceOAuthProviders = await getInstanceOAuthProviders()
 
   let settings = null
   let projects: OperatorProject[] = []
@@ -103,6 +109,7 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     isAuthenticated: Boolean(session),
     hasCodexStatus: Boolean(codexCli),
     instanceConfigured,
+    instanceOAuthProviders,
     projectCount: projects.length,
   })
 
@@ -117,6 +124,7 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     settings,
     codexCli,
     instanceConfigured,
+    instanceOAuthProviders,
     isInstanceOwner: session?.isInstanceOwner ?? false,
     activeProjectId,
     projects,
@@ -134,10 +142,7 @@ function resolveActiveProjectId(
   sessionActiveProjectId: string | null,
   projects: OperatorProject[],
 ): string | null {
-  if (sessionActiveProjectId && projects.some((project) => project.id === sessionActiveProjectId)) {
-    return sessionActiveProjectId
-  }
-  return projects[0]?.id ?? null
+  return pickActiveProjectId(sessionActiveProjectId, projects)
 }
 
 export const saveAccountStep = createServerFn({ method: 'POST' })
@@ -194,14 +199,53 @@ export const loginOperator = createServerFn({ method: 'POST' })
 
     await getDb().query('delete from operator_sessions where operator_id = $1', [row.id])
     await createOperatorSession(row.id)
-    const settings = await getPublicSettingsStatus()
+
     const session = await readOperatorSession()
+    let projects: OperatorProject[] = []
+    let activeProjectId: string | null = null
+
+    if (session) {
+      projects = await listOperatorProjects(session.operatorId)
+      activeProjectId = pickActiveProjectId(session.activeProjectId, projects)
+      if (activeProjectId) {
+        await setActiveProject({
+          sessionId: session.sessionId,
+          operatorId: session.operatorId,
+          projectId: activeProjectId,
+        })
+      }
+
+      if (
+        projects.length > 0 &&
+        session.onboardingStepCompleted < ONBOARDING_STEPS.createProject
+      ) {
+        await getDb().query(
+          `update operators
+           set onboarding_step_completed = greatest(onboarding_step_completed, $2)
+           where id = $1`,
+          [session.operatorId, ONBOARDING_STEPS.createProject],
+        )
+      }
+    }
+
+    const refreshedSession = await readOperatorSession()
+    const onboardingStepCompleted =
+      refreshedSession?.onboardingStepCompleted ?? session?.onboardingStepCompleted ?? 0
+
     return {
-      settings,
-      firstName: session?.firstName,
-      onboardingStepCompleted: session?.onboardingStepCompleted ?? 0,
-      onboardingDismissed: session?.onboardingDismissed ?? false,
+      settings: await getPublicSettingsStatus({
+        checkCodexAuth: false,
+        projectId: activeProjectId,
+      }),
+      firstName: refreshedSession?.firstName,
+      onboardingStepCompleted,
+      onboardingDismissed: refreshedSession?.onboardingDismissed ?? false,
       codexCli: await getCodexCliStatus(),
+      activeProjectId,
+      projects,
+      connectedChannels: activeProjectId
+        ? await listPublicProjectChannels(activeProjectId)
+        : [],
     }
   })
 
@@ -288,11 +332,9 @@ export const publishVariant = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => publishInputSchema.parse(input))
   .handler(async ({ data }) => {
     const session = await requireOperatorSession()
-    if (!session.activeProjectId) {
-      throw new Error('Create a project before publishing.')
-    }
+    const activeProjectId = await requireActiveProjectId(session)
 
-    const channel = await getProjectChannel(session.activeProjectId, data.provider)
+    const channel = await getProjectChannel(activeProjectId, data.provider)
     if (!channel) {
       const label = data.provider === 'linkedin' ? 'LinkedIn' : 'X'
       throw new Error(

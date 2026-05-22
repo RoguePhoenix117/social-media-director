@@ -11,6 +11,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      // Deployer setup writes OAuth keys to `.env` in-process; restarting Vite
+      // mid-save breaks the client with a connection error.
+      ignored: ['**/.env', '**/.env.*'],
+    },
   },
   plugins: [
     devtools(),

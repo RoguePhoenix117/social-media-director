@@ -1,33 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
 
-const instanceConfigRows = new Map<string, string>()
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(() => false),
+  readFileSync: vi.fn(),
+}))
+
 const instanceMetaRow = {
   configured: false,
   setup_completed_at: null as string | null,
 }
 
+const writeOAuthCredentialsToEnv = vi.fn(async () => ({
+  envFilePath: '/tmp/.env',
+  updatedKeys: ['X_CLIENT_ID'],
+  createdFile: false,
+}))
+
+vi.mock('../app/lib/server/oauth-env-writer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../app/lib/server/oauth-env-writer')>()
+  return {
+    ...actual,
+    writeOAuthCredentialsToEnv,
+  }
+})
+
 vi.mock('../app/lib/db/client', () => ({
   getDb: () => ({
-    query: vi.fn(async (sql: string, params?: Array<unknown>) => {
-      if (sql.includes('select key, value_ciphertext from instance_config')) {
-        return {
-          rows: Array.from(instanceConfigRows.entries()).map(([key, value_ciphertext]) => ({
-            key,
-            value_ciphertext,
-          })),
-        }
-      }
-
-      if (sql.includes('delete from instance_config')) {
-        instanceConfigRows.delete(params![0] as string)
-        return { rows: [] }
-      }
-
-      if (sql.includes('insert into instance_config')) {
-        instanceConfigRows.set(params![0] as string, params![1] as string)
-        return { rows: [] }
-      }
-
+    query: vi.fn(async (sql: string) => {
       if (sql.includes('select configured, setup_completed_at from instance_meta')) {
         return { rows: [instanceMetaRow] }
       }
@@ -43,11 +43,6 @@ vi.mock('../app/lib/db/client', () => ({
       throw new Error(`Unexpected query: ${sql}`)
     }),
   }),
-}))
-
-vi.mock('../app/lib/server/crypto', () => ({
-  encryptSecret: (value: string) => `enc:${value}`,
-  decryptSecret: (value: string) => value.replace(/^enc:/, ''),
 }))
 
 const originalEnv = {
@@ -76,17 +71,19 @@ function restoreOAuthEnv() {
 
 describe('instance config', () => {
   beforeEach(() => {
-    instanceConfigRows.clear()
     instanceMetaRow.configured = false
     instanceMetaRow.setup_completed_at = null
     clearOAuthEnv()
+    writeOAuthCredentialsToEnv.mockClear()
+    vi.mocked(existsSync).mockReturnValue(false)
+    vi.mocked(readFileSync).mockReset()
   })
 
   afterEach(() => {
     restoreOAuthEnv()
   })
 
-  it('returns null providers when nothing is configured', async () => {
+  it('returns null providers when env vars are unset', async () => {
     const { getInstanceOAuthConfig, isInstanceConfigured } = await import(
       '../app/lib/server/instance-config'
     )
@@ -95,43 +92,11 @@ describe('instance config', () => {
     await expect(isInstanceConfigured()).resolves.toBe(false)
   })
 
-  it('round-trips DB-stored OAuth credentials encrypted', async () => {
-    const { getInstanceOAuthConfig, saveInstanceOAuthConfig } = await import(
-      '../app/lib/server/instance-config'
-    )
-
-    await saveInstanceOAuthConfig({
-      xClientId: 'x-id',
-      xClientSecret: 'x-secret',
-      linkedinClientId: 'li-id',
-      linkedinClientSecret: 'li-secret',
-    })
-
-    for (const value of instanceConfigRows.values()) {
-      expect(value.startsWith('enc:')).toBe(true)
-    }
-
-    const config = await getInstanceOAuthConfig()
-    expect(config.x).toEqual({ clientId: 'x-id', clientSecret: 'x-secret', source: 'db' })
-    expect(config.linkedin).toEqual({
-      clientId: 'li-id',
-      clientSecret: 'li-secret',
-      source: 'db',
-    })
-  })
-
-  it('lets env vars override DB-stored OAuth credentials', async () => {
-    const { getInstanceOAuthConfig, saveInstanceOAuthConfig } = await import(
-      '../app/lib/server/instance-config'
-    )
-
-    await saveInstanceOAuthConfig({
-      xClientId: 'db-x-id',
-      xClientSecret: 'db-x-secret',
-    })
-
+  it('reads OAuth credentials from environment variables', async () => {
     process.env.X_CLIENT_ID = 'env-x-id'
     process.env.X_CLIENT_SECRET = 'env-x-secret'
+
+    const { getInstanceOAuthConfig } = await import('../app/lib/server/instance-config')
 
     const config = await getInstanceOAuthConfig()
     expect(config.x).toEqual({
@@ -141,47 +106,82 @@ describe('instance config', () => {
     })
   })
 
-  it('treats the instance as configured when env supplies all four creds', async () => {
+  it('falls back to the project .env file when process.env is unset', async () => {
+    vi.mocked(existsSync).mockReturnValue(true)
+    vi.mocked(readFileSync).mockReturnValue(
+      'X_CLIENT_ID=file-x-id\nX_CLIENT_SECRET=file-x-secret\n',
+    )
+
+    const { getInstanceOAuthConfig, getInstanceOAuthProviders } = await import(
+      '../app/lib/server/instance-config'
+    )
+
+    const config = await getInstanceOAuthConfig()
+    expect(config.x).toEqual({
+      clientId: 'file-x-id',
+      clientSecret: 'file-x-secret',
+      source: 'env',
+    })
+    await expect(getInstanceOAuthProviders()).resolves.toEqual({ x: true, linkedin: false })
+  })
+
+  it('prefers process.env over the .env file when both are set', async () => {
+    vi.mocked(existsSync).mockReturnValue(true)
+    vi.mocked(readFileSync).mockReturnValue(
+      'X_CLIENT_ID=file-x-id\nX_CLIENT_SECRET=file-x-secret\n',
+    )
+    process.env.X_CLIENT_ID = 'runtime-x-id'
+    process.env.X_CLIENT_SECRET = 'runtime-x-secret'
+
+    const { getInstanceOAuthConfig } = await import('../app/lib/server/instance-config')
+
+    const config = await getInstanceOAuthConfig()
+    expect(config.x?.clientId).toBe('runtime-x-id')
+    expect(config.x?.clientSecret).toBe('runtime-x-secret')
+  })
+
+  it('treats the instance as configured when env supplies only X creds', async () => {
     const { isInstanceConfigured } = await import('../app/lib/server/instance-config')
 
     process.env.X_CLIENT_ID = 'env-x-id'
     process.env.X_CLIENT_SECRET = 'env-x-secret'
-    process.env.LINKEDIN_CLIENT_ID = 'env-li-id'
-    process.env.LINKEDIN_CLIENT_SECRET = 'env-li-secret'
 
     await expect(isInstanceConfigured()).resolves.toBe(true)
   })
 
-  it('requires markInstanceConfigured when only DB creds are present', async () => {
-    const { isInstanceConfigured, markInstanceConfigured, saveInstanceOAuthConfig } = await import(
+  it('treats the instance as configured after setup completes with zero providers', async () => {
+    const { isInstanceConfigured, markInstanceConfigured } = await import(
       '../app/lib/server/instance-config'
     )
 
-    await saveInstanceOAuthConfig({
-      xClientId: 'db-x-id',
-      xClientSecret: 'db-x-secret',
-      linkedinClientId: 'db-li-id',
-      linkedinClientSecret: 'db-li-secret',
-    })
-
-    await expect(isInstanceConfigured()).resolves.toBe(false)
     await markInstanceConfigured()
     await expect(isInstanceConfigured()).resolves.toBe(true)
   })
 
-  it('deletes a key when the saved value is empty', async () => {
-    const { saveInstanceOAuthConfig } = await import('../app/lib/server/instance-config')
+  it('writes credentials to .env instead of Postgres', async () => {
+    const { saveInstanceOAuthCredentials } = await import('../app/lib/server/instance-config')
 
-    await saveInstanceOAuthConfig({
-      xClientId: 'db-x-id',
-      xClientSecret: 'db-x-secret',
+    await saveInstanceOAuthCredentials({
+      xClientId: 'x-id',
+      xClientSecret: 'x-secret',
     })
-    expect(instanceConfigRows.size).toBe(2)
 
-    await saveInstanceOAuthConfig({
-      xClientId: '',
+    expect(writeOAuthCredentialsToEnv).toHaveBeenCalledWith({
+      X_CLIENT_ID: 'x-id',
+      X_CLIENT_SECRET: 'x-secret',
     })
-    expect(instanceConfigRows.has('x_client_id')).toBe(false)
-    expect(instanceConfigRows.has('x_client_secret')).toBe(true)
+  })
+
+  it('omits blank secrets from env updates', async () => {
+    const { saveInstanceOAuthCredentials } = await import('../app/lib/server/instance-config')
+
+    await saveInstanceOAuthCredentials({
+      xClientId: 'updated-id',
+      xClientSecret: '   ',
+    })
+
+    expect(writeOAuthCredentialsToEnv).toHaveBeenCalledWith({
+      X_CLIENT_ID: 'updated-id',
+    })
   })
 })

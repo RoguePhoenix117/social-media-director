@@ -81,6 +81,17 @@ async function handleQuery(sql: string, params: unknown[] = []) {
     return { rows: [] }
   }
 
+  if (sql.includes('lower(trim(p.name))')) {
+    const operatorId = params[0] as string
+    const name = String(params[1]).trim().toLowerCase()
+    const exists = operatorProjects.some((row) => {
+      if (row.operator_id !== operatorId) return false
+      const project = projects.get(row.project_id)
+      return project?.name.trim().toLowerCase() === name
+    })
+    return { rows: exists ? [{ exists: true }] : [] }
+  }
+
   if (sql.includes('select') && sql.includes('from projects') && sql.includes('join operator_projects')) {
     const operatorId = params[0] as string
     const rows = operatorProjects
@@ -144,11 +155,33 @@ describe('projects', () => {
     ])
   })
 
-  it('produces a unique slug when the same name is reused', async () => {
+  it('rejects duplicate project names for the same operator', async () => {
+    const { createProject } = await import('../app/lib/server/projects')
+
+    await createProject({ operatorId: 'operator-1', name: 'My Brand' })
+
+    await expect(createProject({ operatorId: 'operator-1', name: 'My Brand' })).rejects.toThrow(
+      /already have a project named/i,
+    )
+    await expect(createProject({ operatorId: 'operator-1', name: '  my brand  ' })).rejects.toThrow(
+      /already have a project named/i,
+    )
+  })
+
+  it('allows the same display name for different operators', async () => {
+    const { createProject } = await import('../app/lib/server/projects')
+
+    await createProject({ operatorId: 'operator-1', name: 'Shared Name' })
+    await expect(
+      createProject({ operatorId: 'operator-2', name: 'Shared Name' }),
+    ).resolves.toMatchObject({ name: 'Shared Name' })
+  })
+
+  it('produces a unique slug when the same slug base is reused globally', async () => {
     const { createProject } = await import('../app/lib/server/projects')
 
     const first = await createProject({ operatorId: 'operator-1', name: 'default-project' })
-    const second = await createProject({ operatorId: 'operator-1', name: 'default-project' })
+    const second = await createProject({ operatorId: 'operator-2', name: 'default-project' })
 
     expect(first.slug).toBe('default-project')
     expect(second.slug).toBe('default-project-2')
@@ -183,6 +216,42 @@ describe('projects', () => {
       operatorId: 'operator-1',
       projectId: project.id,
     })
+
+    expect(sessions.get('session-1')).toEqual({
+      id: 'session-1',
+      active_project_id: project.id,
+    })
+  })
+
+  it('pickActiveProjectId falls back to the first project when session has none', async () => {
+    const { createProject, pickActiveProjectId, listOperatorProjects } = await import(
+      '../app/lib/server/projects'
+    )
+
+    const first = await createProject({ operatorId: 'operator-1', name: 'First' })
+    await createProject({ operatorId: 'operator-1', name: 'Second' })
+    const projects = await listOperatorProjects('operator-1')
+
+    expect(pickActiveProjectId(null, projects)).toBe(first.id)
+  })
+
+  it('requireActiveProjectId persists the fallback project on the session', async () => {
+    const { createProject, requireActiveProjectId } = await import('../app/lib/server/projects')
+
+    const project = await createProject({ operatorId: 'operator-1', name: 'Only' })
+
+    await expect(
+      requireActiveProjectId({
+        sessionId: 'session-1',
+        operatorId: 'operator-1',
+        email: 'operator@example.com',
+        firstName: null,
+        onboardingStepCompleted: 0,
+        onboardingDismissed: false,
+        activeProjectId: null,
+        isInstanceOwner: false,
+      }),
+    ).resolves.toBe(project.id)
 
     expect(sessions.get('session-1')).toEqual({
       id: 'session-1',

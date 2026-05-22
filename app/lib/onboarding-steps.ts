@@ -37,3 +37,30 @@ export function onboardingStepFromNumber(value: number): OnboardingStepId | null
   const match = ONBOARDING_STEP_LIST.find((entry) => entry.step === value)
   return match?.id ?? null
 }
+
+type WizardStepId = 'account' | 'createProject' | 'connectChannels' | 'aiSetup'
+
+/** Picks the wizard screen — skips project creation when the operator already has one. */
+export function resolveWizardStep(input: {
+  mode: 'first-run' | 'resume'
+  onboardingStepCompleted: number
+  projectCount: number
+  modelConfigured: boolean
+}): WizardStepId {
+  if (input.mode === 'first-run') return 'account'
+  if (input.onboardingStepCompleted < ONBOARDING_STEPS.createProject && input.projectCount === 0) {
+    return 'createProject'
+  }
+  if (input.onboardingStepCompleted < ONBOARDING_STEPS.connectChannels) return 'connectChannels'
+  if (!input.modelConfigured && input.onboardingStepCompleted < ONBOARDING_STEPS.complete) {
+    return 'aiSetup'
+  }
+  return 'aiSetup'
+}
+
+export function isCreateProjectStepComplete(
+  onboardingStepCompleted: number,
+  projectCount: number,
+): boolean {
+  return onboardingStepCompleted >= ONBOARDING_STEPS.createProject || projectCount > 0
+}

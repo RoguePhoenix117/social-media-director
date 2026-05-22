@@ -5,11 +5,22 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import {
+  DEFAULT_OPENAI_SOCIAL_MODEL,
+  openAiModelOptionLabel,
+  pickRecommendedOpenAiModel,
+  sortOpenAiModelsForSocialPosts,
+} from '../lib/ai/recommended-models'
+import {
   aiBackendLabels,
   aiBackendTypes,
   type AiBackendType,
   isAiBackendType,
 } from '../lib/domain/ai-backends'
+import {
+  clearStaleServerFunctionReloadFlag,
+  formatServerFunctionError,
+  invokeServerFn,
+} from '../lib/server-fn-error'
 import type { CodexCliStatus } from '../lib/server/codex-cli'
 import type { PublicSettingsStatus } from '../lib/server/settings'
 import {
@@ -71,6 +82,10 @@ export function AiWorkspace({
   const [isTesting, setIsTesting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
+  useEffect(() => {
+    clearStaleServerFunctionReloadFlag()
+  }, [])
+
   const form = useForm({
     defaultValues: {
       backendType: initialBackendType(settings),
@@ -121,7 +136,7 @@ export function AiWorkspace({
         setMessage('Codex CLI settings saved.')
         await onSaved?.(nextSettings)
       } catch (caught) {
-        setMessage(caught instanceof Error ? caught.message : 'Save failed.')
+        setMessage(formatServerFunctionError(caught))
       } finally {
         setIsSaving(false)
       }
@@ -131,30 +146,8 @@ export function AiWorkspace({
   const backendType = useStore(form.store, (state) => state.values.backendType)
 
   useEffect(() => {
-    if (codexCli) {
-      setCodexStatus(codexCli)
-      return
-    }
-
-    let cancelled = false
-    void testCodexFn({ data: {} })
-      .then((result) => {
-        if (!cancelled) setCodexStatus(result.status)
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCodexStatus({
-            installed: false,
-            authenticated: false,
-            message: 'Codex CLI status is unavailable.',
-          })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [codexCli, testCodexFn])
+    setCodexStatus(codexCli)
+  }, [codexCli])
 
   async function runOpenAiTest() {
     setIsTesting(true)
@@ -163,17 +156,24 @@ export function AiWorkspace({
     onMarkUnsaved?.()
 
     try {
-      const result = await testOpenAiFn({
-        data: { openaiApiKey: form.state.values.openaiApiKey },
-      })
-      setOpenaiModels(result.models)
-      if (!result.models.includes(form.state.values.openaiModel)) {
-        form.setFieldValue('openaiModel', result.models[0] ?? '')
+      const result = await invokeServerFn(() =>
+        testOpenAiFn({
+          data: { openaiApiKey: form.state.values.openaiApiKey },
+        }),
+      )
+      const models = sortOpenAiModelsForSocialPosts(result.models)
+      setOpenaiModels(models)
+      const currentModel = form.state.values.openaiModel
+      if (!currentModel || !models.includes(currentModel)) {
+        form.setFieldValue('openaiModel', pickRecommendedOpenAiModel(models))
       }
       setOpenaiTested(true)
-      toast.success(`OpenAI key valid. ${result.models.length} models loaded.`)
+      const recommended = pickRecommendedOpenAiModel(models)
+      toast.success(
+        `OpenAI key valid. ${models.length} models loaded — ${recommended} recommended for social posts.`,
+      )
     } catch (caught) {
-      const errorMessage = caught instanceof Error ? caught.message : 'OpenAI key test failed.'
+      const errorMessage = formatServerFunctionError(caught)
       setTestError(errorMessage)
       toast.error(errorMessage)
     } finally {
@@ -188,7 +188,7 @@ export function AiWorkspace({
     onMarkUnsaved?.()
 
     try {
-      const result = await testCodexFn({ data: {} })
+      const result = await invokeServerFn(() => testCodexFn({ data: {} }))
       setCodexStatus(result.status)
       setCodexModels(result.models)
       if (!result.models.includes(form.state.values.codexCliModel)) {
@@ -197,8 +197,7 @@ export function AiWorkspace({
       setCodexTested(true)
       toast.success(`Codex CLI connected. ${result.models.length} models loaded.`)
     } catch (caught) {
-      const errorMessage =
-        caught instanceof Error ? caught.message : 'Codex CLI connection test failed.'
+      const errorMessage = formatServerFunctionError(caught)
       setTestError(errorMessage)
       toast.error(errorMessage)
     } finally {
@@ -330,10 +329,15 @@ export function AiWorkspace({
                       {!openaiTested ? <option value="">Test key to load models</option> : null}
                       {openaiModels.map((modelId) => (
                         <option key={modelId} value={modelId}>
-                          {modelId}
+                          {openAiModelOptionLabel(modelId, openaiModels)}
                         </option>
                       ))}
                     </select>
+                    <small className="field-guidance">
+                      Social posts are short — pick a mini or nano model for speed and lower cost (
+                      {DEFAULT_OPENAI_SOCIAL_MODEL} when available). Reasoning models (o-series)
+                      are overkill here.
+                    </small>
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}
@@ -355,7 +359,7 @@ export function AiWorkspace({
                 </div>
               </div>
             ) : (
-              <p className="setup-copy">Checking Codex CLI status...</p>
+              <p className="setup-copy">Click Test connection to check Codex CLI status.</p>
             )}
 
             <ol className="friendly-steps compact">

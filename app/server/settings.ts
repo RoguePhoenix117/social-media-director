@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCodexCliStatus } from '../lib/server/codex-cli'
 import { listOperatorProjects } from '../lib/server/projects'
 import { listPublicProjectChannels, type PublicProjectChannel } from '../lib/server/provider-accounts'
+import { getInstanceOAuthProviders } from '../lib/server/instance-config'
 import { requireOperatorSession } from '../lib/server/session'
 import { getPublicSettingsStatus } from '../lib/server/settings'
 
@@ -19,11 +20,12 @@ import { getPublicSettingsStatus } from '../lib/server/settings'
 
 export const getSettingsPageState = createServerFn({ method: 'GET' }).handler(async () => {
   const session = await requireOperatorSession()
-  const [projects, connectedChannels] = await Promise.all([
+  const [projects, connectedChannels, instanceOAuthProviders] = await Promise.all([
     listOperatorProjects(session.operatorId),
     session.activeProjectId
       ? listPublicProjectChannels(session.activeProjectId)
       : Promise.resolve<PublicProjectChannel[]>([]),
+    getInstanceOAuthProviders(),
   ])
 
   return {
@@ -33,6 +35,7 @@ export const getSettingsPageState = createServerFn({ method: 'GET' }).handler(as
     activeProjectId: session.activeProjectId,
     projects,
     connectedChannels,
+    instanceOAuthProviders,
     settings: await getPublicSettingsStatus({ projectId: session.activeProjectId }),
     codexCli: await getCodexCliStatus(),
   }

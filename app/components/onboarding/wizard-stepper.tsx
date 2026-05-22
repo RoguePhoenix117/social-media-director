@@ -1,4 +1,4 @@
-import { ONBOARDING_STEPS } from '../../lib/onboarding-steps'
+import { ONBOARDING_STEPS, isCreateProjectStepComplete } from '../../lib/onboarding-steps'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
 import type { WizardMode, WizardStepId } from './wizard-types'
 
@@ -20,6 +20,7 @@ export function WizardStepper({
   onNavigate,
   settings,
   connectedChannels,
+  projectCount,
 }: Readonly<{
   current: WizardStepId
   mode: WizardMode
@@ -27,6 +28,7 @@ export function WizardStepper({
   onNavigate: (target: WizardStepId) => void
   settings: PublicSettingsStatus | null
   connectedChannels: number
+  projectCount: number
 }>) {
   return (
     <div aria-label="Onboarding progress" className="stepper">
@@ -39,6 +41,7 @@ export function WizardStepper({
           settings,
           onboardingStepCompleted,
           connectedChannels,
+          projectCount,
         )
 
         return (
@@ -67,9 +70,12 @@ function stepClass(
   settings: PublicSettingsStatus | null,
   onboardingStepCompleted: number,
   connectedChannels: number,
+  projectCount: number,
 ) {
   if (current === entry.id) return 'active'
-  if (isStepConfigured(entry.id, settings, onboardingStepCompleted, connectedChannels)) return 'done'
+  if (isStepConfigured(entry.id, settings, onboardingStepCompleted, connectedChannels, projectCount)) {
+    return 'done'
+  }
   if (onboardingStepCompleted >= entry.step) return 'skipped'
   return ''
 }
@@ -79,12 +85,13 @@ function isStepConfigured(
   settings: PublicSettingsStatus | null,
   stepCompleted: number,
   connectedChannels: number,
+  projectCount: number,
 ) {
   switch (id) {
     case 'account':
       return stepCompleted >= ONBOARDING_STEPS.account
     case 'createProject':
-      return stepCompleted >= ONBOARDING_STEPS.createProject
+      return isCreateProjectStepComplete(stepCompleted, projectCount)
     case 'connectChannels':
       return connectedChannels > 0
     case 'aiSetup':

@@ -1,6 +1,7 @@
 import { X as XIcon } from 'lucide-react'
 import { useState } from 'react'
-import { ONBOARDING_STEPS } from '../../lib/onboarding-steps'
+import { countEnabledChannelSlots, type InstanceOAuthProviders } from '../../lib/channel-catalog'
+import { resolveWizardStep } from '../../lib/onboarding-steps'
 import type { CodexCliStatus } from '../../lib/server/codex-cli'
 import type { PublicProjectChannel } from '../../lib/server/provider-accounts'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
@@ -27,6 +28,8 @@ export function OnboardingWizard({
   settings,
   codexCli,
   connectedChannels,
+  instanceOAuthProviders,
+  projectCount,
   onAccountSave,
   onCreateProject,
   onCompleteChannels,
@@ -38,17 +41,28 @@ export function OnboardingWizard({
   settings: PublicSettingsStatus | null
   codexCli: CodexCliStatus | null
   connectedChannels: PublicProjectChannel[]
+  /** Used to skip the create-project step when the operator already has one. */
+  projectCount: number
+  instanceOAuthProviders: InstanceOAuthProviders
   onAccountSave?: (data: AccountStepInput) => Promise<void>
   onCreateProject: (input: { name: string }) => Promise<void>
   onCompleteChannels: () => Promise<void>
   onCompleteOnboarding: () => Promise<void>
   onDismiss?: () => Promise<void>
 }>) {
-  const initialStep = pickInitialStep(mode, onboardingStepCompleted, settings)
+  const totalChannelSlots = countEnabledChannelSlots(instanceOAuthProviders)
+  const initialStep = pickInitialStep(
+    mode,
+    onboardingStepCompleted,
+    settings,
+    projectCount,
+  )
   const [step, setStep] = useState<WizardStepId>(initialStep)
   const [error, setError] = useState<string>()
   const [message, setMessage] = useState<string>()
-  const [channelsModalOpen, setChannelsModalOpen] = useState(initialStep === 'connectChannels')
+  const [channelsModalOpen, setChannelsModalOpen] = useState(
+    initialStep === 'connectChannels' && totalChannelSlots > 0,
+  )
 
   function clearStatus() {
     setError(undefined)
@@ -58,7 +72,7 @@ export function OnboardingWizard({
   function navigateTo(target: WizardStepId) {
     clearStatus()
     setStep(target)
-    setChannelsModalOpen(target === 'connectChannels')
+    setChannelsModalOpen(target === 'connectChannels' && totalChannelSlots > 0)
   }
 
   async function handleCreateProject(input: { name: string }) {
@@ -154,6 +168,7 @@ export function OnboardingWizard({
             mode={mode}
             onNavigate={navigateTo}
             onboardingStepCompleted={onboardingStepCompleted}
+            projectCount={projectCount}
             settings={settings}
           />
 
@@ -174,14 +189,15 @@ export function OnboardingWizard({
                 <div>
                   <h2>Connect Your Channels</h2>
                   <p>
-                    Click a channel to connect it via OAuth, or continue without
-                    channels — you can connect them later from the dashboard.
+                    {totalChannelSlots > 0
+                      ? 'Click Connect channels below, then sign in on X or LinkedIn to authorize this app. You do not need console.x.com, docs.x.com, or any tokens — OAuth only.'
+                      : 'Click Connect channels below to see which providers are available. If X or LinkedIn show as not enabled, the deployer can add them in Settings → Developers.'}
                   </p>
                 </div>
               </div>
-              <div className="button-row">
+              <div className="button-row onboarding-step-actions">
                 <button onClick={() => setChannelsModalOpen(true)} type="button">
-                  Open Connect Channels
+                  Connect channels
                 </button>
                 <button
                   className="secondary-button"
@@ -229,6 +245,7 @@ export function OnboardingWizard({
 
       <ConnectChannelsModal
         connectedChannels={connectedChannels}
+        instanceOAuthProviders={instanceOAuthProviders}
         onClose={() => setChannelsModalOpen(false)}
         onContinue={() => void handleCompleteChannels()}
         open={channelsModalOpen}
@@ -242,10 +259,12 @@ function pickInitialStep(
   mode: WizardMode,
   stepCompleted: number,
   settings: PublicSettingsStatus | null,
+  projectCount: number,
 ): WizardStepId {
-  if (mode === 'first-run') return 'account'
-  if (stepCompleted < ONBOARDING_STEPS.createProject) return 'createProject'
-  if (stepCompleted < ONBOARDING_STEPS.connectChannels) return 'connectChannels'
-  if (!settings?.modelConfigured && stepCompleted < ONBOARDING_STEPS.complete) return 'aiSetup'
-  return 'aiSetup'
+  return resolveWizardStep({
+    mode,
+    onboardingStepCompleted: stepCompleted,
+    projectCount,
+    modelConfigured: Boolean(settings?.modelConfigured),
+  })
 }

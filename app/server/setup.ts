@@ -6,8 +6,9 @@ import {
   isInstanceConfigured,
   markInstanceConfigured,
   readInstanceMeta,
-  saveInstanceOAuthConfig,
+  saveInstanceOAuthCredentials,
 } from '../lib/server/instance-config'
+import { resolveAppOrigin } from '../lib/local-dev-origin'
 import { requireOperatorSession } from '../lib/server/session'
 import { assertSetupKeyValid, isLocalhostOrigin } from '../lib/server/setup-guard'
 import {
@@ -21,12 +22,11 @@ import {
 } from '../lib/server/setup-helpers'
 
 /**
- * Public PR2 Setup Mode + Settings → Developers API.
+ * Setup Mode + Settings → Developers API.
  *
- * Returned secrets are never exposed; the UI only ever sees client IDs and
- * "configured" flags. `source: 'env'` tells the UI to render fields as
- * read-only — env vars override DB and the UI must not pretend it can edit
- * them.
+ * OAuth app credentials are written to the project-root `.env` only — never
+ * Postgres. Secrets are not returned to the client; the UI sees client IDs and
+ * configured flags from `process.env`.
  */
 
 export type { ProviderName, ProviderSetupStatus, SetupKeyState } from '../lib/server/setup-helpers'
@@ -76,8 +76,8 @@ export const saveInstanceSetup = createServerFn({ method: 'POST' })
     assertSetupKeyValid({ origin, providedKey: data.setupKey })
 
     const current = await getInstanceOAuthConfig()
-    await saveInstanceOAuthConfig(buildSaveInput(current, data))
-    await maybeMarkConfigured()
+    await saveInstanceOAuthCredentials(buildSaveInput(current, data))
+    await markInstanceConfigured()
 
     return buildInstanceSetupStatus(data.setupKey)
   })
@@ -94,8 +94,7 @@ export const saveDeveloperSettings = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<DeveloperSettings> => {
     await requireInstanceOwner()
     const current = await getInstanceOAuthConfig()
-    await saveInstanceOAuthConfig(buildSaveInput(current, data))
-    await maybeMarkConfigured()
+    await saveInstanceOAuthCredentials(buildSaveInput(current, data))
     return buildDeveloperSettings()
   })
 
@@ -142,13 +141,6 @@ async function requireInstanceOwner() {
   }
 }
 
-async function maybeMarkConfigured() {
-  const next = await getInstanceOAuthConfig()
-  if (next.x && next.linkedin) {
-    await markInstanceConfigured()
-  }
-}
-
 /**
  * Reads the live request URL so localhost gating works in dev without env
  * overrides. Falls back to `APP_ORIGIN` for non-HTTP execution contexts
@@ -157,8 +149,8 @@ async function maybeMarkConfigured() {
 function resolveCurrentOrigin(): string {
   try {
     const url = getRequestUrl()
-    return `${url.protocol}//${url.host}`
+    return resolveAppOrigin(`${url.protocol}//${url.host}`)
   } catch {
-    return process.env.APP_ORIGIN?.trim() || 'http://localhost:5173'
+    return resolveAppOrigin()
   }
 }

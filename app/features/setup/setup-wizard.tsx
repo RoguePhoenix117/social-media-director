@@ -10,7 +10,6 @@ import { SetupStepConfirm } from './setup-step-confirm'
 import {
   LINKEDIN_CHECKLIST,
   SetupStepProvider,
-  X_CHECKLIST,
 } from './setup-step-provider'
 import { SetupStepWelcome } from './setup-step-welcome'
 
@@ -54,6 +53,11 @@ export function SetupWizard({
     if (prev) setStep(prev.id)
   }
 
+  function skipProviderStep() {
+    setError(undefined)
+    nextStep()
+  }
+
   async function onSave() {
     setError(undefined)
     setIsSaving(true)
@@ -61,15 +65,10 @@ export function SetupWizard({
       const result = await saveInstanceSetupFn({
         data: {
           setupKey,
-          xClientId: status.providers.x.source === 'env' ? undefined : xClientId || undefined,
-          xClientSecret:
-            status.providers.x.source === 'env' ? undefined : xClientSecret || undefined,
-          linkedinClientId:
-            status.providers.linkedin.source === 'env' ? undefined : linkedinClientId || undefined,
-          linkedinClientSecret:
-            status.providers.linkedin.source === 'env'
-              ? undefined
-              : linkedinClientSecret || undefined,
+          xClientId: xClientId || undefined,
+          xClientSecret: xClientSecret || undefined,
+          linkedinClientId: linkedinClientId || undefined,
+          linkedinClientSecret: linkedinClientSecret || undefined,
         },
       })
       setStatus(result)
@@ -94,9 +93,13 @@ export function SetupWizard({
           <p className="eyebrow">Instance setup</p>
           <h1>Configure OAuth app credentials</h1>
           <p className="page-summary">
-            One-time setup for the deployer. Register a developer app at X and LinkedIn,
-            then paste the client ID and secret here. End users connect their personal
-            channels later — do NOT paste your own access tokens.
+            One-time setup for the deployer. Register an app at{' '}
+            <a href="https://console.x.com/" rel="noreferrer" target="_blank">
+              console.x.com
+            </a>{' '}
+            and LinkedIn Developers, then paste OAuth 2.0 client ID and secret for each
+            provider you want. Skip any platform you do not need — operators cannot
+            connect skipped providers until credentials are added later.
           </p>
         </header>
 
@@ -127,10 +130,10 @@ export function SetupWizard({
             onClientSecretChange={(event) => setXClientSecret(event.target.value)}
             onNext={nextStep}
             onPrev={prevStep}
-            portalUrl="https://developer.x.com/en/portal/dashboard"
+            onSkip={skipProviderStep}
+            portalUrl="https://console.x.com/"
             provider="x"
             scopes={['tweet.read', 'tweet.write', 'users.read', 'offline.access']}
-            setupChecklist={X_CHECKLIST}
             status={status.providers.x}
           />
         ) : null}
@@ -145,6 +148,7 @@ export function SetupWizard({
             onClientSecretChange={(event) => setLinkedinClientSecret(event.target.value)}
             onNext={nextStep}
             onPrev={prevStep}
+            onSkip={skipProviderStep}
             portalUrl="https://www.linkedin.com/developers/apps"
             provider="linkedin"
             scopes={['openid', 'profile', 'w_member_social']}
@@ -155,6 +159,10 @@ export function SetupWizard({
 
         {step === 'confirm' ? (
           <SetupStepConfirm
+            draft={{
+              x: { clientId: xClientId, clientSecret: xClientSecret },
+              linkedin: { clientId: linkedinClientId, clientSecret: linkedinClientSecret },
+            }}
             error={error}
             isSaving={isSaving}
             onPrev={prevStep}

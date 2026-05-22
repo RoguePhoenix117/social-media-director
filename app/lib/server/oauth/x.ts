@@ -1,3 +1,4 @@
+import { normalizeLocalDevOrigin } from '../../local-dev-origin'
 import { getInstanceOAuthConfig, type InstanceOAuthProviderConfig } from '../instance-config'
 
 /**
@@ -37,7 +38,8 @@ export type XUserProfile = {
 }
 
 export function getXCallbackUrl(origin: string): string {
-  return `${origin.replace(/\/$/, '')}${X_CALLBACK_PATH}`
+  const normalized = normalizeLocalDevOrigin(origin.replace(/\/$/, ''))
+  return `${normalized}${X_CALLBACK_PATH}`
 }
 
 export async function requireXOAuthConfig(): Promise<InstanceOAuthProviderConfig> {

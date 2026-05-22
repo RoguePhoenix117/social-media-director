@@ -14,8 +14,8 @@ Open-source, self-hosted social posting dashboard for turning public blog posts 
 
 ## Documentation
 
-- [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) — **deployer guide**. How to register the X + LinkedIn apps for an instance, set OAuth callback URLs, choose between env vars and the in-app Setup Mode wizard, and protect `/setup` with `INSTANCE_SETUP_KEY`.
-- [`docs/end-user-guide.md`](docs/end-user-guide.md) — **operator guide**. Sign up, create a project, connect channels via OAuth, draft and publish.
+- [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) — **deployer guide**. Register the X + LinkedIn **apps** at console.x.com / LinkedIn Developers (OAuth 2.0 Client ID + Secret only — not personal account tokens). Env vars or Setup Mode wizard; protect `/setup` with `INSTANCE_SETUP_KEY`. Aligned with [docs.x.com](https://docs.x.com/overview).
+- [`docs/end-user-guide.md`](docs/end-user-guide.md) — **operator guide**. Sign up, create a project, connect channels via OAuth only (no developer portals), draft and publish.
 - [`docs/manual-test-checklist.md`](docs/manual-test-checklist.md) — **QA checklist**. Phase-by-phase manual test plan after PR1–PR6.
 - [`docs/CODE_INDEX.md`](docs/CODE_INDEX.md) — module catalog (discover-before-create).
 - [`docs/adr/`](docs/adr) — architecture decision records.
@@ -27,7 +27,7 @@ Open-source, self-hosted social posting dashboard for turning public blog posts 
 pnpm install
 cp .env.example .env       # fill in SESSION_SECRET, APP_ENCRYPTION_KEY
 pnpm db:up                 # boots local Postgres in Docker
-pnpm dev                   # http://localhost:5173
+pnpm dev                   # http://127.0.0.1:5173 (set APP_ORIGIN to match; X rejects localhost)
 ```
 
 On first boot you'll be redirected to `/setup` — the in-app wizard that registers your X + LinkedIn OAuth apps. Follow [`docs/developer-oauth-setup.md`](docs/developer-oauth-setup.md) for the portal steps.
@@ -71,6 +71,14 @@ To clear all operators, sessions, settings, and posts but keep the existing sche
 pnpm db:wipe
 ```
 
+To also clear deployer OAuth credentials from `.env` and reopen the instance setup wizard at `/setup`:
+
+```bash
+pnpm db:wipe -- --reset-setup
+```
+
+After either command, restart `pnpm dev`. Clear your browser cookies for the app if you still appear signed in.
+
 Use `pnpm db:logs` to watch Postgres startup and migration output, and `pnpm db:down` to stop the container while keeping the local database volume.
 
 This project uses the Postgres 18 Docker image, so the database volume is mounted at `/var/lib/postgresql` per the image's current storage layout.
@@ -79,7 +87,7 @@ This project uses the Postgres 18 Docker image, so the database volume is mounte
 
 All secrets are encrypted at rest in Postgres with `APP_ENCRYPTION_KEY`:
 
-- OAuth app credentials (`X_CLIENT_SECRET`, `LINKEDIN_CLIENT_SECRET`) stored in `instance_config` when set via the Setup Mode UI instead of env vars.
+- OAuth app credentials live in `.env` only (`X_CLIENT_ID`, `X_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`). The Setup Mode wizard merges into that file — it does not store deployer secrets in Postgres.
 - User OAuth access + refresh tokens stored in `provider_accounts`.
 - AI backend keys stored in `operator_settings`.
 

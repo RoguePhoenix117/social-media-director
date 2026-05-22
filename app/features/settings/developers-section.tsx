@@ -3,8 +3,11 @@ import { useServerFn } from '@tanstack/react-start'
 import { KeyRound, Save, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { bootstrapQueryKey } from '../../lib/bootstrap-query'
+import { resolveProviderCallbackUrl } from '../../lib/browser-app-origin'
+import { useBrowserAppOrigin } from '../../hooks/use-browser-app-origin'
 import { instanceSetupQueryKey } from '../setup/setup-query'
 import { ProviderCredentialFields } from '../setup/provider-credential-fields'
+import { LocalDevOriginSummary } from '../setup/local-dev-origin-guide'
 import { saveDeveloperSettings } from '../../server/setup'
 import { developerSettingsQueryOptions } from './settings-query'
 
@@ -27,6 +30,7 @@ export function DevelopersSection({
   const [message, setMessage] = useState<string>()
   const [error, setError] = useState<string>()
   const [isSaving, setIsSaving] = useState(false)
+  const browserOrigin = useBrowserAppOrigin()
 
   if (!isInstanceOwner) return null
 
@@ -79,7 +83,7 @@ export function DevelopersSection({
       queryClient.setQueryData(developerSettingsQueryOptions().queryKey, next)
       setXClientSecret('')
       setLinkedinClientSecret('')
-      setMessage('Developer credentials saved.')
+      setMessage('Developer credentials saved to .env.')
       await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey })
       await queryClient.invalidateQueries({ queryKey: instanceSetupQueryKey })
     } catch (caught) {
@@ -96,19 +100,28 @@ export function DevelopersSection({
         <div>
           <h2>Developers</h2>
           <p>
-            OAuth app credentials used when end users connect their channels. Env vars
-            (<code>X_CLIENT_ID</code>, <code>X_CLIENT_SECRET</code>,{' '}
-            <code>LINKEDIN_CLIENT_ID</code>, <code>LINKEDIN_CLIENT_SECRET</code>)
-            override these DB values.
+            OAuth app credentials for end-user channel connection. Values are stored in the
+            project-root <code>.env</code> file (<code>X_CLIENT_ID</code>,{' '}
+            <code>X_CLIENT_SECRET</code>, <code>LINKEDIN_CLIENT_ID</code>,{' '}
+            <code>LINKEDIN_CLIENT_SECRET</code>) — not in the database.
           </p>
         </div>
       </div>
+
+      <LocalDevOriginSummary
+        linkedinCallbackUrl={data.callbackUrls.linkedin}
+        xCallbackUrl={data.callbackUrls.x}
+      />
 
       <div className="developer-provider-grid">
         <div>
           <h3>X (Twitter)</h3>
           <ProviderCredentialFields
-            callbackUrl={data.callbackUrls.x}
+            callbackUrl={resolveProviderCallbackUrl(
+              browserOrigin,
+              data.callbackUrls.x,
+              'x',
+            )}
             clientId={xClientId}
             clientSecret={xClientSecret}
             onClientIdChange={(event) => setXClientId(event.target.value)}
@@ -121,7 +134,11 @@ export function DevelopersSection({
         <div>
           <h3>LinkedIn</h3>
           <ProviderCredentialFields
-            callbackUrl={data.callbackUrls.linkedin}
+            callbackUrl={resolveProviderCallbackUrl(
+              browserOrigin,
+              data.callbackUrls.linkedin,
+              'linkedin',
+            )}
             clientId={linkedinClientId}
             clientSecret={linkedinClientSecret}
             onClientIdChange={(event) => setLinkedinClientId(event.target.value)}

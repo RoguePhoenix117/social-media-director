@@ -369,7 +369,7 @@ describe('getXCallbackUrl', () => {
       'https://app.example.com/integrations/social/x/callback',
     )
     expect(getXCallbackUrl('http://localhost:5173/')).toBe(
-      'http://localhost:5173/integrations/social/x/callback',
+      'http://127.0.0.1:5173/integrations/social/x/callback',
     )
   })
 })

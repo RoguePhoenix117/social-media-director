@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Bot, Link2, PenLine, Send, SlidersHorizontal } from 'lucide-react'
+import type { InstanceOAuthProviders } from '../../lib/channel-catalog'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
 
 type StatusCard = {
@@ -7,19 +8,22 @@ type StatusCard = {
   value: string
   isReady: boolean
   icon: typeof Bot
+  manageable?: boolean
   action?: { label: string; to: string; hash?: string }
 }
 
 export function DashboardStatusGrid({
   settings,
   draftCount,
+  instanceOAuthProviders,
   onChannelsClick,
 }: Readonly<{
   settings: PublicSettingsStatus | null
   draftCount: number
+  instanceOAuthProviders: InstanceOAuthProviders
   onChannelsClick: () => void
 }>) {
-  const cards = buildCards(settings, draftCount)
+  const cards = buildCards(settings, draftCount, instanceOAuthProviders)
 
   return (
     <section aria-label="Integration status" className="stats-grid">
@@ -44,7 +48,8 @@ export function DashboardStatusGrid({
               <SlidersHorizontal aria-hidden="true" size={16} />
               <span>{card.action.label}</span>
             </Link>
-          ) : card.label === 'X publishing' || card.label === 'LinkedIn' ? (
+          ) : (card.label === 'X publishing' || card.label === 'LinkedIn') &&
+            card.manageable !== false ? (
             <button
               aria-label={`Manage ${card.label}`}
               className="stat-card-action stat-card-action--button"
@@ -61,7 +66,11 @@ export function DashboardStatusGrid({
   )
 }
 
-function buildCards(settings: PublicSettingsStatus | null, draftCount: number): StatusCard[] {
+function buildCards(
+  settings: PublicSettingsStatus | null,
+  draftCount: number,
+  instanceOAuthProviders: InstanceOAuthProviders,
+): StatusCard[] {
   return [
     {
       label: 'AI model',
@@ -72,15 +81,17 @@ function buildCards(settings: PublicSettingsStatus | null, draftCount: number): 
     },
     {
       label: 'X publishing',
-      value: settings?.xConfigured ? 'Connected' : 'Not connected',
-      isReady: Boolean(settings?.xConfigured),
+      value: channelStatusValue(settings?.xConfigured, instanceOAuthProviders.x),
+      isReady: Boolean(instanceOAuthProviders.x && settings?.xConfigured),
       icon: Send,
+      manageable: instanceOAuthProviders.x,
     },
     {
       label: 'LinkedIn',
-      value: settings?.linkedinConfigured ? 'Connected' : 'Not connected',
-      isReady: Boolean(settings?.linkedinConfigured),
+      value: channelStatusValue(settings?.linkedinConfigured, instanceOAuthProviders.linkedin),
+      isReady: Boolean(instanceOAuthProviders.linkedin && settings?.linkedinConfigured),
       icon: Link2,
+      manageable: instanceOAuthProviders.linkedin,
     },
     {
       label: 'Drafts generated',
@@ -89,6 +100,11 @@ function buildCards(settings: PublicSettingsStatus | null, draftCount: number): 
       icon: PenLine,
     },
   ]
+}
+
+function channelStatusValue(connected: boolean | undefined, enabledOnInstance: boolean) {
+  if (!enabledOnInstance) return 'Not enabled on instance'
+  return connected ? 'Connected' : 'Not connected'
 }
 
 function aiModelStatusValue(settings: PublicSettingsStatus | null) {

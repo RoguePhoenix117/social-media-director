@@ -5,6 +5,7 @@ import {
   type OpenAIChatModel,
 } from '@tanstack/ai-openai'
 import { z } from 'zod'
+import { DEFAULT_OPENAI_SOCIAL_MODEL } from './recommended-models'
 import type {
   ImportedContentSource,
   MasterPostInput,
@@ -90,7 +91,7 @@ export async function generateSocialPosts(
     try {
       const result = await generateWithOpenAI(input, {
         apiKey,
-        model: modelConfig?.openaiModel ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+        model: modelConfig?.openaiModel ?? process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_SOCIAL_MODEL,
         targetProviders,
       })
       logInfo('ai.generate.success', { provider, variantCount: result.variants.length })
@@ -363,8 +364,11 @@ function normalizeGeneratedVariants(
 
 function resolveOpenAIModel(model: string): OpenAIChatModel {
   if (isOpenAIChatModel(model)) return model
-  logInfo('ai.openai.model_fallback', { requestedModel: model, fallbackModel: 'gpt-4.1-mini' })
-  return 'gpt-4.1-mini'
+  logInfo('ai.openai.model_fallback', {
+    requestedModel: model,
+    fallbackModel: DEFAULT_OPENAI_SOCIAL_MODEL,
+  })
+  return DEFAULT_OPENAI_SOCIAL_MODEL
 }
 
 function isOpenAIChatModel(model: string): model is OpenAIChatModel {

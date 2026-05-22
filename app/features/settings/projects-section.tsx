@@ -1,7 +1,7 @@
 import { Check, FolderKanban, FolderPlus, Plug } from 'lucide-react'
 import { useState } from 'react'
 import { CreateProjectScreen } from '../../components/create-project-screen'
-import { TOTAL_CHANNEL_SLOTS } from '../../lib/channel-catalog'
+import { countEnabledChannelSlots, type InstanceOAuthProviders } from '../../lib/channel-catalog'
 import type { OperatorProject } from '../../lib/server/projects'
 
 /**
@@ -18,16 +18,19 @@ import type { OperatorProject } from '../../lib/server/projects'
 export function ProjectsSection({
   projects,
   activeProjectId,
+  instanceOAuthProviders,
   onCreate,
   onSwitch,
 }: Readonly<{
   projects: ReadonlyArray<OperatorProject>
   activeProjectId: string | null
+  instanceOAuthProviders: InstanceOAuthProviders
   onCreate: (input: { name: string }) => Promise<void>
   onSwitch: (projectId: string) => Promise<void>
 }>) {
   const [showCreate, setShowCreate] = useState(projects.length === 0)
   const [pendingSwitchId, setPendingSwitchId] = useState<string | null>(null)
+  const totalChannelSlots = countEnabledChannelSlots(instanceOAuthProviders)
 
   async function handleSwitch(projectId: string) {
     if (projectId === activeProjectId) return
@@ -72,8 +75,7 @@ export function ProjectsSection({
                   <p className="projects-section-item-name">{project.name}</p>
                   <div className="projects-section-item-meta">
                     <span>
-                      <Plug aria-hidden="true" size={12} /> {project.connectedChannelCount}/
-                      {TOTAL_CHANNEL_SLOTS} channels
+                      <Plug aria-hidden="true" size={12} />                       {project.connectedChannelCount}/{totalChannelSlots} channels
                     </span>
                     <span>slug: {project.slug}</span>
                   </div>

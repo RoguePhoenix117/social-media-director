@@ -3,12 +3,12 @@
  *
  * Active providers (`status: 'active'`) wire up to the OAuth start route at
  * `/integrations/social/{provider}`. Coming-soon tiles render disabled so
- * the grid keeps visual parity with the Postiz-style reference UI while we
- * ship one provider at a time.
- *
- * PR5: X + LinkedIn active. All other tiles render as "Coming soon" so the
- * grid keeps visual parity with the Postiz reference UI.
+ * the grid keeps visual parity with the Postiz-style reference UI.
  */
+
+import type { InstanceOAuthProviders } from './server/instance-config'
+
+export type { InstanceOAuthProviders }
 
 export type ChannelStatus = 'active' | 'coming_soon'
 
@@ -61,10 +61,18 @@ export function getActiveCatalogEntry(provider: ConnectableProvider): ChannelCat
   return CHANNEL_CATALOG.find((entry) => entry.id === provider && entry.status === 'active')
 }
 
+export function countEnabledChannelSlots(providers: InstanceOAuthProviders): number {
+  return (providers.x ? 1 : 0) + (providers.linkedin ? 1 : 0)
+}
+
+export function isInstanceProviderEnabled(
+  providers: InstanceOAuthProviders,
+  provider: ConnectableProvider,
+): boolean {
+  return providers[provider]
+}
+
 /**
- * Number of provider slots that count towards the "N/M channels" progress
- * shown in the dashboard. Today this is X + LinkedIn (MVP); LinkedIn counts
- * even while the tile is "Coming soon" so the progress badge already shows
- * `0/2` and updates automatically when PR5 flips LinkedIn to active.
+ * @deprecated Prefer {@link countEnabledChannelSlots} — slot count is dynamic.
  */
 export const TOTAL_CHANNEL_SLOTS = 2 as const

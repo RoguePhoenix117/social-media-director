@@ -3,6 +3,7 @@ import { getBootstrapState } from '../server/dashboard'
 import type { CodexCliStatus } from './server/codex-cli'
 import type { OperatorProject } from './server/projects'
 import type { PublicProjectChannel } from './server/provider-accounts'
+import type { InstanceOAuthProviders } from './server/instance-config'
 import type { PublicSettingsStatus } from './server/settings'
 
 export const bootstrapQueryKey = ['bootstrap-state'] as const
@@ -16,8 +17,10 @@ export function bootstrapQueryOptions() {
 }
 
 type BootstrapBase = {
-  /** True when both X + LinkedIn OAuth app credentials are configured. */
+  /** True once the deployer finishes Setup Mode (providers are optional). */
   instanceConfigured: boolean
+  /** Which OAuth apps the deployer registered — operators can only connect these. */
+  instanceOAuthProviders: InstanceOAuthProviders
   isInstanceOwner: boolean
   /** Currently selected project for the operator (resolved by the server). */
   activeProjectId: string | null

@@ -1,6 +1,12 @@
 import { ArrowRight, X as XIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { CHANNEL_CATALOG, type ConnectableProvider } from '../../lib/channel-catalog'
+import {
+  CHANNEL_CATALOG,
+  countEnabledChannelSlots,
+  isInstanceProviderEnabled,
+  type ConnectableProvider,
+  type InstanceOAuthProviders,
+} from '../../lib/channel-catalog'
 import type { PublicProjectChannel } from '../../lib/server/provider-accounts'
 import { ChannelTile } from './channel-tile'
 import { ConnectedChannelCard } from './connected-channel-card'
@@ -23,12 +29,15 @@ export function ConnectChannelsModal({
   onClose,
   onContinue,
   connectedChannels,
+  instanceOAuthProviders,
   variant = 'standalone',
 }: Readonly<{
   open: boolean
   onClose: () => void
   onContinue: () => void
   connectedChannels: PublicProjectChannel[]
+  /** OAuth apps registered by the deployer — unavailable providers cannot connect. */
+  instanceOAuthProviders: InstanceOAuthProviders
   /**
    * `onboarding` swaps the continue label from "Continue" to either
    * "Continue without channels" (none connected) or "Continue".
@@ -51,6 +60,7 @@ export function ConnectChannelsModal({
   const connectedProviders = new Set<ConnectableProvider>(
     connectedChannels.map((channel) => channel.provider),
   )
+  const enabledSlotCount = countEnabledChannelSlots(instanceOAuthProviders)
   const continueLabel =
     variant === 'onboarding' && connectedChannels.length === 0
       ? 'Continue without channels'
@@ -79,8 +89,19 @@ export function ConnectChannelsModal({
         <header className="connect-channels-header">
           <p className="eyebrow">Channels</p>
           <h2 id="connect-channels-title">Connect Your Channels</h2>
-          <p>Connect your social media accounts to start scheduling posts.</p>
+          <p>
+            {enabledSlotCount > 0
+              ? 'Sign in on X or LinkedIn and click Authorize — no developer portal, no API keys, and nothing to paste here.'
+              : 'No social OAuth apps are configured on this instance. The deployer can add X or LinkedIn later in Settings → Developers.'}
+          </p>
         </header>
+
+        {enabledSlotCount === 0 ? (
+          <p className="setup-copy connect-channels-empty-notice" role="status">
+            Channel connection is unavailable until the instance owner registers at least one
+            OAuth app.
+          </p>
+        ) : null}
 
         {connectedChannels.length > 0 ? (
           <section
@@ -102,6 +123,11 @@ export function ConnectChannelsModal({
             {CHANNEL_CATALOG.map((entry) => (
               <ChannelTile
                 entry={entry}
+                instanceOAuthEnabled={
+                  entry.id === 'x' || entry.id === 'linkedin'
+                    ? isInstanceProviderEnabled(instanceOAuthProviders, entry.id)
+                    : true
+                }
                 isConnected={isConnectedEntry(entry.id, connectedProviders)}
                 key={entry.id}
               />

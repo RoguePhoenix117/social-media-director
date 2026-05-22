@@ -1,5 +1,6 @@
 import { KeyRound, ShieldAlert, Sparkles } from 'lucide-react'
 import type { InstanceSetupStatus } from '../../server/setup'
+import { LocalDevOriginGuide } from './local-dev-origin-guide'
 
 export function SetupStepWelcome({
   status,
@@ -11,20 +12,27 @@ export function SetupStepWelcome({
         <p>
           <strong>You are the deployer.</strong> Setup Mode registers the OAuth apps that
           will let end users connect their personal X and LinkedIn accounts later via
-          Connect Channels (PR4). Do not paste your own user access tokens here.
+          Connect Channels. Do not paste your own user access tokens here.
         </p>
       </div>
+
+      {status.isLocalhost ? (
+        <LocalDevOriginGuide provider="x" serverCallbackUrl={status.callbackUrls.x} />
+      ) : null}
 
       <ul className="setup-checklist">
         <li>
           <Sparkles aria-hidden="true" size={18} />
-          Two OAuth apps required: one at the X Developer Portal and one at the LinkedIn
-          Developer Portal.
+          Optional OAuth apps at{' '}
+          <a href="https://console.x.com/" rel="noreferrer" target="_blank">
+            console.x.com
+          </a>{' '}
+          and LinkedIn Developers. Register only the platforms you need; skip the rest.
         </li>
         <li>
           <KeyRound aria-hidden="true" size={18} />
-          Each app needs a client ID and client secret. The secret is stored encrypted
-          in <code>instance_config</code>.
+          Each app needs a client ID and client secret, saved to your project <code>.env</code>{' '}
+          when you use the wizard or Settings → Developers.
         </li>
         <li>
           <ShieldAlert aria-hidden="true" size={18} />
@@ -35,8 +43,12 @@ export function SetupStepWelcome({
       </ul>
 
       <p className="field-guidance">
-        Detailed portal instructions ship with PR6 in <code>docs/developer-oauth-setup.md</code>.
-        Until then, each step below summarises the minimum portal configuration.
+        Full walkthrough: <code>docs/developer-oauth-setup.md</code> (aligned with{' '}
+        <a href="https://docs.x.com/overview" rel="noreferrer" target="_blank">
+          docs.x.com
+        </a>
+        ). Operators never use this step — they connect via OAuth in Connect Channels
+        after sign-up.
       </p>
 
       <div className="button-row">

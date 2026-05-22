@@ -14,7 +14,7 @@ import {
   bootstrapQueryOptions,
   type BootstrapState,
 } from '../../lib/bootstrap-query'
-import { TOTAL_CHANNEL_SLOTS } from '../../lib/channel-catalog'
+import { countEnabledChannelSlots } from '../../lib/channel-catalog'
 import { ONBOARDING_STEPS } from '../../lib/onboarding-steps'
 import {
   dismissOnboardingWizard,
@@ -97,10 +97,12 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
 
   if (!authState.hasOperator) {
     return (
-      <OnboardingWizard
-        codexCli={authState.codexCli}
-        connectedChannels={[]}
-        mode="first-run"
+        <OnboardingWizard
+          codexCli={authState.codexCli}
+          connectedChannels={[]}
+          instanceOAuthProviders={authState.instanceOAuthProviders}
+          mode="first-run"
+          projectCount={0}
         onAccountSave={async (data) => {
           const result = await saveAccountStepFn({ data })
           updateBootstrapState({
@@ -114,6 +116,7 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
             settings: result.settings,
             codexCli: result.codexCli,
             instanceConfigured: authState.instanceConfigured,
+            instanceOAuthProviders: authState.instanceOAuthProviders,
             isInstanceOwner: true,
             activeProjectId: null,
             projects: [],
@@ -151,10 +154,11 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
             settings: result.settings,
             codexCli: result.codexCli,
             instanceConfigured: authState.instanceConfigured,
+            instanceOAuthProviders: authState.instanceOAuthProviders,
             isInstanceOwner: authState.isInstanceOwner,
-            activeProjectId: authState.activeProjectId,
-            projects: authState.projects,
-            connectedChannels: authState.connectedChannels,
+            activeProjectId: result.activeProjectId,
+            projects: result.projects,
+            connectedChannels: result.connectedChannels,
           })
         }}
       />
@@ -180,6 +184,7 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
       settings: null,
       codexCli: null,
       instanceConfigured: authState.instanceConfigured,
+      instanceOAuthProviders: authState.instanceOAuthProviders,
       isInstanceOwner: false,
       activeProjectId: null,
       projects: [],
@@ -187,14 +192,13 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
     })
   }
 
+  const totalChannelSlots = countEnabledChannelSlots(authState.instanceOAuthProviders)
+
   async function onSwitchProject(projectId: string) {
     const result = await setActiveProjectFn({ data: { projectId } })
     applyOnboardingResult(result)
     await queryClient.invalidateQueries({ queryKey: settingsPageQueryKey, refetchType: 'all' })
-    // Auto-open Connect Channels for any project that still needs OAuth — covers
-    // both the "just created a 2nd project" UX and switching back to a project
-    // whose channels haven't been connected yet.
-    if (result.connectedChannels.length === 0) {
+    if (result.connectedChannels.length === 0 && totalChannelSlots > 0) {
       setChannelsModalOpen(true)
     }
   }
@@ -209,7 +213,7 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
             activeProjectId={authState.activeProjectId}
             onSwitch={onSwitchProject}
             projects={authState.projects}
-            totalChannelSlots={TOTAL_CHANNEL_SLOTS}
+            totalChannelSlots={totalChannelSlots}
           />
         ) : null
       }
@@ -223,14 +227,18 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
             from one self-hosted dashboard.
           </p>
         </div>
-        <ChannelProgressButton
-          connectedCount={authState.connectedChannels.length}
-          onClick={() => setChannelsModalOpen(true)}
-        />
+        {totalChannelSlots > 0 ? (
+          <ChannelProgressButton
+            connectedCount={authState.connectedChannels.length}
+            onClick={() => setChannelsModalOpen(true)}
+            totalSlots={totalChannelSlots}
+          />
+        ) : null}
       </header>
 
       <DashboardStatusGrid
         draftCount={0}
+        instanceOAuthProviders={authState.instanceOAuthProviders}
         onChannelsClick={() => setChannelsModalOpen(true)}
         settings={authState.settings}
       />
@@ -239,7 +247,9 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
         <OnboardingWizard
           codexCli={authState.codexCli}
           connectedChannels={authState.connectedChannels}
+          instanceOAuthProviders={authState.instanceOAuthProviders}
           mode="resume"
+          projectCount={authState.projects.length}
           onCompleteChannels={async () => {
             applyOnboardingResult(await completeChannelsStepFn())
           }}
@@ -294,6 +304,7 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
 
       <ConnectChannelsModal
         connectedChannels={authState.connectedChannels}
+        instanceOAuthProviders={authState.instanceOAuthProviders}
         onClose={() => setChannelsModalOpen(false)}
         onContinue={() => setChannelsModalOpen(false)}
         open={channelsModalOpen}

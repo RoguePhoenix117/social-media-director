@@ -1,26 +1,24 @@
 import { Plug } from 'lucide-react'
-import { TOTAL_CHANNEL_SLOTS } from '../lib/channel-catalog'
 
 /**
  * Persistent header control showing the active project's connected channel
- * count ("1/2 Channels"). Click reopens the Connect Channels modal so the
- * operator can connect more or replace a channel.
- *
- * Total slot count comes from `TOTAL_CHANNEL_SLOTS` (X + LinkedIn for MVP).
+ * count ("1/M Channels"). M reflects how many OAuth apps the deployer enabled.
  */
 export function ChannelProgressButton({
   connectedCount,
   onClick,
   disabled,
+  totalSlots,
 }: Readonly<{
   connectedCount: number
   onClick: () => void
   disabled?: boolean
+  totalSlots: number
 }>) {
-  const allConnected = connectedCount >= TOTAL_CHANNEL_SLOTS
+  const allConnected = totalSlots > 0 && connectedCount >= totalSlots
   return (
     <button
-      aria-label={`Manage channels — ${connectedCount} of ${TOTAL_CHANNEL_SLOTS} connected`}
+      aria-label={`Manage channels — ${connectedCount} of ${totalSlots} connected`}
       className={
         allConnected
           ? 'channel-progress-button channel-progress-button--complete'
@@ -32,7 +30,7 @@ export function ChannelProgressButton({
     >
       <Plug aria-hidden="true" size={16} />
       <span>
-        {connectedCount}/{TOTAL_CHANNEL_SLOTS} Channels
+        {connectedCount}/{totalSlots} Channels
       </span>
     </button>
   )

@@ -2,6 +2,7 @@ import type {
   InstanceOAuthConfig,
   InstanceOAuthProviderConfig,
 } from './instance-config'
+import { normalizeLocalDevOrigin } from '../local-dev-origin'
 import { isLocalhostOrigin, isSetupKeyConfigured } from './setup-guard'
 
 /**
@@ -16,7 +17,7 @@ export type ProviderName = 'x' | 'linkedin'
 export type ProviderSetupStatus = {
   clientId: string | null
   clientSecretConfigured: boolean
-  source: 'env' | 'db' | 'none'
+  source: 'env' | 'none'
 }
 
 export type SetupKeyState = {
@@ -42,26 +43,24 @@ export type ProviderSaveUpdates = {
 }
 
 /**
- * env-sourced credentials win at read time, so we silently drop write attempts
- * for env-sourced fields. The UI also renders those fields read-only, but
- * server-side defence prevents a malicious client from polluting the DB row.
+ * Builds partial env updates from wizard / developer form input. Blank secrets
+ * are omitted so an existing `.env` value is preserved.
  */
 export function buildSaveInput(
-  current: InstanceOAuthConfig,
+  _current: InstanceOAuthConfig,
   data: ProviderInput,
 ): ProviderSaveUpdates {
   const updates: ProviderSaveUpdates = {}
 
-  if (current.x?.source !== 'env') {
-    if (data.xClientId !== undefined) updates.xClientId = data.xClientId
-    if (data.xClientSecret !== undefined) updates.xClientSecret = data.xClientSecret
+  if (data.xClientId !== undefined) updates.xClientId = data.xClientId
+  if (data.xClientSecret !== undefined && data.xClientSecret.trim() !== '') {
+    updates.xClientSecret = data.xClientSecret
   }
-  if (current.linkedin?.source !== 'env') {
-    if (data.linkedinClientId !== undefined) updates.linkedinClientId = data.linkedinClientId
-    if (data.linkedinClientSecret !== undefined) {
-      updates.linkedinClientSecret = data.linkedinClientSecret
-    }
+  if (data.linkedinClientId !== undefined) updates.linkedinClientId = data.linkedinClientId
+  if (data.linkedinClientSecret !== undefined && data.linkedinClientSecret.trim() !== '') {
+    updates.linkedinClientSecret = data.linkedinClientSecret
   }
+
   return updates
 }
 
@@ -77,9 +76,10 @@ export function toProviderStatus(
 }
 
 export function buildCallbackUrls(origin: string): Record<ProviderName, string> {
+  const normalized = normalizeLocalDevOrigin(origin)
   return {
-    x: `${origin}/integrations/social/x/callback`,
-    linkedin: `${origin}/integrations/social/linkedin/callback`,
+    x: `${normalized}/integrations/social/x/callback`,
+    linkedin: `${normalized}/integrations/social/linkedin/callback`,
   }
 }
 

@@ -15,17 +15,24 @@ import { PlatformIcon } from '../platform-icons'
 export function ChannelTile({
   entry,
   isConnected,
+  instanceOAuthEnabled = true,
 }: Readonly<{
   entry: ChannelCatalogEntry
   isConnected: boolean
+  /** False when the deployer did not register OAuth for this provider. */
+  instanceOAuthEnabled?: boolean
 }>) {
-  const isActive = entry.status === 'active'
+  const isConnectableProvider = entry.id === 'x' || entry.id === 'linkedin'
+  const isUnavailableOnInstance = isConnectableProvider && !instanceOAuthEnabled && !isConnected
+  const isActive = entry.status === 'active' && instanceOAuthEnabled
   const isClickable = isActive && !isConnected && Boolean(entry.startHref)
 
   const badge = isConnected ? (
     <span aria-label="Connected" className="channel-tile-badge channel-tile-badge--connected">
       <Check aria-hidden="true" size={12} />
     </span>
+  ) : isUnavailableOnInstance ? (
+    <span className="channel-tile-badge channel-tile-badge--unavailable">Not enabled</span>
   ) : entry.status === 'coming_soon' ? (
     <span className="channel-tile-badge channel-tile-badge--soon">Soon</span>
   ) : null
@@ -56,14 +63,26 @@ export function ChannelTile({
     <div
       aria-disabled="true"
       aria-label={
-        isConnected ? `${entry.label} is already connected` : `${entry.label} coming soon`
+        isConnected
+          ? `${entry.label} is already connected`
+          : isUnavailableOnInstance
+            ? `${entry.label} is not enabled on this instance`
+            : `${entry.label} coming soon`
       }
       className={
         isConnected
           ? 'channel-tile channel-tile--connected'
-          : 'channel-tile channel-tile--disabled'
+          : isUnavailableOnInstance
+            ? 'channel-tile channel-tile--unavailable'
+            : 'channel-tile channel-tile--disabled'
       }
-      title={isConnected ? 'Already connected' : 'Coming soon'}
+      title={
+        isConnected
+          ? 'Already connected'
+          : isUnavailableOnInstance
+            ? 'Not enabled on this instance — ask the deployer to add OAuth credentials'
+            : 'Coming soon'
+      }
     >
       {inner}
     </div>

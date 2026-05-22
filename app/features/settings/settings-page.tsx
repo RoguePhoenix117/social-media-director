@@ -8,7 +8,7 @@ import { AppLayout } from '../../components/app-layout'
 import { ConnectChannelsModal } from '../../components/connect-channels/connect-channels-modal'
 import { ProjectSwitcher } from '../../components/project-switcher'
 import { bootstrapQueryKey } from '../../lib/bootstrap-query'
-import { TOTAL_CHANNEL_SLOTS } from '../../lib/channel-catalog'
+import { countEnabledChannelSlots } from '../../lib/channel-catalog'
 import type { PublicSettingsStatus } from '../../lib/server/settings'
 import { createProject, setActiveProject } from '../../server/projects'
 import type { getSettingsPageState } from '../../server/settings'
@@ -30,6 +30,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
   const [channelsModalOpen, setChannelsModalOpen] = useState(false)
 
   const settings = pageState.settings
+  const totalChannelSlots = countEnabledChannelSlots(pageState.instanceOAuthProviders)
   const operatorName = pageState.operatorFirstName
     ? pageState.operatorFirstName
     : pageState.operatorEmail
@@ -52,7 +53,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
       queryClient.invalidateQueries({ queryKey: bootstrapQueryKey, refetchType: 'all' }),
     ])
 
-    if (opts.autoOpenIfEmpty) {
+    if (opts.autoOpenIfEmpty && totalChannelSlots > 0) {
       const refreshed = queryClient.getQueryData<SettingsPageState>(settingsPageQueryKey)
       if ((refreshed?.connectedChannels ?? []).length === 0) {
         setChannelsModalOpen(true)
@@ -81,7 +82,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
             activeProjectId={pageState.activeProjectId}
             onSwitch={onSwitchProject}
             projects={pageState.projects}
-            totalChannelSlots={TOTAL_CHANNEL_SLOTS}
+            totalChannelSlots={totalChannelSlots}
           />
         ) : null
       }
@@ -98,9 +99,19 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
       </header>
 
       <section className="stats-grid settings-status-grid" aria-label="Configuration status">
-        <StatusCard configured={settings.modelConfigured} icon={Bot} label="AI model" />
-        <StatusCard configured={settings.xConfigured} icon={Send} label="X publishing" />
-        <StatusCard configured={settings.linkedinConfigured} icon={Link2} label="LinkedIn" />
+        <StatusCard configured={settings.modelConfigured} enabled icon={Bot} label="AI model" />
+        <StatusCard
+          configured={settings.xConfigured}
+          enabled={pageState.instanceOAuthProviders.x}
+          icon={Send}
+          label="X publishing"
+        />
+        <StatusCard
+          configured={settings.linkedinConfigured}
+          enabled={pageState.instanceOAuthProviders.linkedin}
+          icon={Link2}
+          label="LinkedIn"
+        />
       </section>
 
       <div className="settings-page-grid">
@@ -114,6 +125,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
 
         <ProjectsSection
           activeProjectId={pageState.activeProjectId}
+          instanceOAuthProviders={pageState.instanceOAuthProviders}
           onCreate={onCreateProject}
           onSwitch={onSwitchProject}
           projects={pageState.projects}
@@ -122,6 +134,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
         <ChannelsSection
           activeProjectId={pageState.activeProjectId}
           connectedChannels={pageState.connectedChannels}
+          instanceOAuthProviders={pageState.instanceOAuthProviders}
         />
       </div>
 
@@ -129,6 +142,7 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
 
       <ConnectChannelsModal
         connectedChannels={pageState.connectedChannels}
+        instanceOAuthProviders={pageState.instanceOAuthProviders}
         onClose={() => setChannelsModalOpen(false)}
         onContinue={() => setChannelsModalOpen(false)}
         open={channelsModalOpen}
@@ -139,23 +153,32 @@ export function SettingsPage({ initialState }: Readonly<{ initialState: Settings
 
 function StatusCard({
   configured,
+  enabled,
   icon: Icon,
   label,
 }: Readonly<{
   configured: boolean
+  enabled: boolean
   icon: typeof Bot
   label: string
 }>) {
+  const isReady = enabled && configured
+  const statusLabel = !enabled
+    ? 'Not enabled'
+    : configured
+      ? 'Configured'
+      : 'Missing'
+
   return (
     <article className="stat-card">
-      <div className={configured ? 'stat-icon ready' : 'stat-icon'}>
+      <div className={isReady ? 'stat-icon ready' : 'stat-icon'}>
         <Icon aria-hidden="true" size={22} />
       </div>
       <div>
         <p>{label}</p>
-        <strong>{configured ? 'Configured' : 'Missing'}</strong>
+        <strong>{statusLabel}</strong>
       </div>
-      {configured ? <CheckCircle2 aria-hidden="true" className="status-check" size={19} /> : null}
+      {isReady ? <CheckCircle2 aria-hidden="true" className="status-check" size={19} /> : null}
     </article>
   )
 }

@@ -4,20 +4,23 @@ import { ChannelProgressButton } from '../../components/channel-progress-button'
 import { ConnectChannelsModal } from '../../components/connect-channels/connect-channels-modal'
 import { ConnectedChannelCard } from '../../components/connect-channels/connected-channel-card'
 import type { PublicProjectChannel } from '../../lib/server/provider-accounts'
+import { countEnabledChannelSlots, type InstanceOAuthProviders } from '../../lib/channel-catalog'
 
 /**
- * Settings → Channels card. Replaces the legacy paste form removed in PR4:
- * channels are now connected exclusively via OAuth through the Connect
- * Channels modal.
+ * Settings → Channels card. Channels are connected exclusively via OAuth
+ * through the Connect Channels modal — no developer portal or token paste.
  */
 export function ChannelsSection({
   activeProjectId,
   connectedChannels,
+  instanceOAuthProviders,
 }: Readonly<{
   activeProjectId: string | null
   connectedChannels: PublicProjectChannel[]
+  instanceOAuthProviders: InstanceOAuthProviders
 }>) {
   const [open, setOpen] = useState(false)
+  const totalChannelSlots = countEnabledChannelSlots(instanceOAuthProviders)
 
   return (
     <>
@@ -30,8 +33,9 @@ export function ChannelsSection({
           <div>
             <h2>Connected channels</h2>
             <p>
-              Connect your X and LinkedIn accounts via OAuth. Tokens stay encrypted in
-              your local database.
+              {totalChannelSlots > 0
+                ? 'Click Manage channels to sign in on X or LinkedIn and authorize — OAuth only, no API keys or developer console needed.'
+                : 'No OAuth apps are configured on this instance. The instance owner can add X or LinkedIn in Developers settings.'}
             </p>
           </div>
         </div>
@@ -44,16 +48,21 @@ export function ChannelsSection({
           </ul>
         ) : (
           <p className="setup-copy">
-            No channels connected yet. Open the modal to start an OAuth connection.
+            {totalChannelSlots > 0
+              ? 'No channels connected yet. Open the modal to start an OAuth connection.'
+              : 'Channel connection is unavailable until the instance owner registers OAuth credentials.'}
           </p>
         )}
 
         <div className="button-row">
-          <ChannelProgressButton
-            connectedCount={connectedChannels.length}
-            disabled={!activeProjectId}
-            onClick={() => setOpen(true)}
-          />
+          {totalChannelSlots > 0 ? (
+            <ChannelProgressButton
+              connectedCount={connectedChannels.length}
+              disabled={!activeProjectId}
+              onClick={() => setOpen(true)}
+              totalSlots={totalChannelSlots}
+            />
+          ) : null}
           {!activeProjectId ? (
             <p className="setup-copy" role="status">
               Create a project from the dashboard onboarding to manage channels.
@@ -64,6 +73,7 @@ export function ChannelsSection({
 
       <ConnectChannelsModal
         connectedChannels={connectedChannels}
+        instanceOAuthProviders={instanceOAuthProviders}
         onClose={() => setOpen(false)}
         onContinue={() => setOpen(false)}
         open={open}

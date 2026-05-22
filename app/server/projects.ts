@@ -6,6 +6,7 @@ import {
   createProject as createProjectRecord,
   ensureOperatorProjectAccess,
   listOperatorProjects,
+  requireActiveProjectId,
   setActiveProject as setActiveProjectInSession,
   type OperatorProject,
 } from '../lib/server/projects'
@@ -81,25 +82,23 @@ export const createProjectStep = createServerFn({ method: 'POST' })
 export const completeChannelsStep = createServerFn({ method: 'POST' }).handler(
   async (): Promise<OnboardingStepResult> => {
     const session = await requireOperatorSession()
-    if (!session.activeProjectId) {
-      throw new Error('Create a project before completing channel setup.')
-    }
+    const activeProjectId = await requireActiveProjectId(session)
 
-    await ensureOperatorProjectAccess(session.operatorId, session.activeProjectId)
+    await ensureOperatorProjectAccess(session.operatorId, activeProjectId)
 
     await getDb().query(
       `update projects
        set channels_onboarding_completed = true,
            updated_at = now()
        where id = $1`,
-      [session.activeProjectId],
+      [activeProjectId],
     )
 
     await advanceOnboardingStep(session.operatorId, ONBOARDING_STEPS.connectChannels)
 
     return buildOnboardingStepResult({
       operatorId: session.operatorId,
-      activeProjectId: session.activeProjectId,
+      activeProjectId,
     })
   },
 )

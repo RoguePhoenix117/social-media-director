@@ -30,17 +30,18 @@ export const xPortalCredentialRows = [
 
 export const xGuideSteps = [
   {
-    title: 'Use the X Developer Portal',
+    title: 'Register the app in the X console',
     summary:
-      'Sign in at developer.x.com (or console.x.com) with the X account that should publish posts. Create a Project, then an App inside that project. That is the correct place for API credentials.',
+      'Sign in at console.x.com with any X account that can create developer apps (it does not have to be the account that will publish). Create a Project and App — you are registering the application, not connecting an end-user account.',
     checklist: [
-      'Open https://developer.x.com/en/portal/dashboard and sign in.',
-      'Create a Project if you do not have one, then add an App under that project.',
-      'Keep the app on a paid API tier if your account requires it for posting (check your portal entitlements).',
+      'Open https://console.x.com/ and sign in as the deployer.',
+      'Create a Project if needed, then add an App (e.g. social-media-director).',
+      'Enable OAuth 2.0 User authentication — see OAuth 2.0 overview on docs.x.com.',
     ],
     links: [
-      ['X Developer Portal', 'https://developer.x.com/en/portal/dashboard'],
-      ['X API documentation', 'https://docs.x.com/'],
+      ['X console', 'https://console.x.com/'],
+      ['X Developer Platform', 'https://docs.x.com/overview'],
+      ['OAuth 2.0 overview', 'https://docs.x.com/fundamentals/authentication/oauth-2-0/overview'],
     ],
   },
   {
@@ -50,8 +51,8 @@ export const xGuideSteps = [
     checklist: [
       'App permissions: select Read and write.',
       'Type of App: select Web App, Automated App or Bot (confidential client)—not Native App.',
-      'Callback URI / Redirect URL (required): {APP_ORIGIN}/integrations/social/x/callback (e.g. http://localhost:5173/integrations/social/x/callback for local dev).',
-      'Website URL (required): same origin as above, e.g. http://127.0.0.1:5173 or your deployed site URL.',
+      'Callback URI / Redirect URL (required): {APP_ORIGIN}/integrations/social/x/callback (use 127.0.0.1 locally — X rejects localhost, e.g. http://127.0.0.1:5173/integrations/social/x/callback).',
+      'Website URL (required): your APP_ORIGIN root (e.g. http://127.0.0.1:5173 — not localhost).',
       'Leave Request email from users unchecked unless you also add HTTPS Terms of Service and Privacy Policy URLs.',
       'Click Save Changes, then open Keys and tokens.',
     ],
@@ -81,7 +82,7 @@ export function XCredentialMappingTable() {
       <table className="credential-mapping-table">
         <thead>
           <tr>
-            <th scope="col">X Developer Portal label</th>
+            <th scope="col">X console label (Keys &amp; tokens)</th>
             <th scope="col">Also called</th>
             <th scope="col">Posts for you?</th>
             <th scope="col">Paste in this app?</th>

@@ -5,8 +5,7 @@ import { CallbackUrlField } from './setup-callback-url'
 
 /**
  * Pair of client ID + secret inputs for a single OAuth provider.
- * When credentials are sourced from `process.env` the fields render read-only
- * with a clear badge so the deployer knows to update env vars instead.
+ * Saving writes to the project-root `.env` — never to Postgres.
  */
 export function ProviderCredentialFields({
   provider,
@@ -27,20 +26,21 @@ export function ProviderCredentialFields({
   onClientIdChange: (event: ChangeEvent<HTMLInputElement>) => void
   onClientSecretChange: (event: ChangeEvent<HTMLInputElement>) => void
 }>) {
-  const isEnv = status.source === 'env'
+  const isConfigured = status.source === 'env'
   const clientIdName = `${provider}ClientId`
   const clientSecretName = `${provider}ClientSecret`
+  const displayClientId = clientId || status.clientId || ''
 
   return (
     <div className="provider-credential-fields">
-      {isEnv ? (
+      {isConfigured ? (
         <div className="auth-state-card connected" role="status">
           <ShieldCheck aria-hidden="true" size={18} />
           <div>
-            <strong>Configured via environment variables</strong>
+            <strong>Configured in `.env`</strong>
             <p>
-              These credentials are set in your <code>.env</code> file and cannot be edited
-              from the UI. Update the env file and restart to change them.
+              Values are loaded from your project-root <code>.env</code> file. Saving here
+              updates those lines only — other env vars are left untouched.
             </p>
           </div>
         </div>
@@ -49,39 +49,49 @@ export function ProviderCredentialFields({
       <CallbackUrlField label="Callback URL (paste into developer portal)" url={callbackUrl} />
 
       <label className="form-field">
-        <span className="field-label">Client ID</span>
+        <span className="field-label">
+          {provider === 'x' ? 'OAuth 2.0 Client ID' : 'Client ID'}
+        </span>
         <input
           autoComplete="off"
-          disabled={isEnv}
           name={clientIdName}
           onChange={onClientIdChange}
-          placeholder={isEnv ? 'Set via environment' : status.clientId ?? 'Paste client ID'}
+          placeholder={
+            provider === 'x'
+              ? 'From Keys & tokens → OAuth 2.0 Keys'
+              : status.clientId ?? 'Paste client ID'
+          }
           spellCheck={false}
           type="text"
-          value={isEnv ? status.clientId ?? '' : clientId}
+          value={displayClientId}
         />
       </label>
 
       <label className="form-field">
-        <span className="field-label">Client secret</span>
+        <span className="field-label">
+          {provider === 'x' ? 'OAuth 2.0 Client Secret' : 'Client secret'}
+        </span>
         <input
           autoComplete="off"
-          disabled={isEnv}
           name={clientSecretName}
           onChange={onClientSecretChange}
           placeholder={
-            isEnv
-              ? 'Set via environment'
-              : secretPlaceholder ??
-                (status.clientSecretConfigured ? 'Configured — paste to replace' : 'Paste client secret')
+            secretPlaceholder ??
+            (provider === 'x'
+              ? status.clientSecretConfigured
+                ? 'Leave blank to keep current .env value'
+                : 'From OAuth 2.0 Keys — click Show in console'
+              : status.clientSecretConfigured
+                ? 'Leave blank to keep current .env value'
+                : 'Paste client secret')
           }
           spellCheck={false}
           type="password"
-          value={isEnv ? '' : clientSecret}
+          value={clientSecret}
         />
         <small className="field-guidance">
-          Stored encrypted in <code>instance_config</code>. The secret is never returned to the
-          browser after saving.
+          Written to <code>.env</code> on save. The secret is never returned to the browser
+          after saving.
         </small>
       </label>
     </div>

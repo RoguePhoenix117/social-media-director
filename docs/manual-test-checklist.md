@@ -7,7 +7,7 @@ Use this after a fresh migration (`0007_projects_oauth.sql` applied). Requires r
 - [ ] Postgres running (`pnpm db:up`)
 - [ ] `.env` has `SESSION_SECRET`, `APP_ENCRYPTION_KEY`, `DATABASE_URL`, `APP_ORIGIN`
 - [ ] Either OAuth app creds in `.env` **or** you will complete Setup Mode UI
-- [ ] `pnpm dev` running at `APP_ORIGIN` (default `http://localhost:5173`)
+- [ ] `pnpm dev` running at `APP_ORIGIN` (local default `http://127.0.0.1:5173` — not `localhost`, for X)
 
 ---
 

@@ -801,6 +801,15 @@ textarea {
   gap: 10px;
 }
 
+.onboarding-step-actions {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.onboarding-step-actions .secondary-button {
+  margin-left: auto;
+}
+
 .setup-copy {
   color: #475467;
   line-height: 1.5;
@@ -1321,6 +1330,101 @@ textarea {
   color: #475467;
   line-height: 1.5;
   padding: 14px;
+}
+
+.local-dev-origin-guide {
+  display: grid;
+  gap: 14px;
+}
+
+.local-dev-origin-guide-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.local-dev-origin-guide-header .setup-guide-heading {
+  margin: 0 0 6px;
+}
+
+.local-dev-origin-guide-header p {
+  color: #475467;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.local-dev-origin-mismatch {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+
+.local-dev-origin-mismatch p {
+  margin: 0;
+}
+
+.setup-callout-warning {
+  align-items: flex-start;
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+  display: flex;
+  gap: 12px;
+}
+
+.setup-callout-warning p {
+  margin: 6px 0 0;
+}
+
+.setup-guide-stack {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 4px;
+}
+
+.setup-guide-heading {
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+.setup-sublist {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.setup-credential-matrix {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .setup-credential-matrix {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.setup-matrix-heading {
+  align-items: center;
+  display: flex;
+  font-size: 0.92rem;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.setup-matrix-list {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.setup-matrix-list-yes {
+  color: #166534;
+}
+
+.setup-matrix-list-no {
+  color: #991b1b;
 }
 
 .setup-callout p,
@@ -1993,7 +2097,8 @@ textarea {
 }
 
 .channel-tile--disabled,
-.channel-tile--connected {
+.channel-tile--connected,
+.channel-tile--unavailable {
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -2001,6 +2106,10 @@ textarea {
 .channel-tile--connected {
   border-color: #16a34a;
   opacity: 1;
+}
+
+.channel-tile--unavailable {
+  opacity: 0.5;
 }
 
 .channel-tile-icon {
@@ -2038,6 +2147,12 @@ textarea {
 
 .channel-tile-badge--soon {
   background: #344054;
+}
+
+.channel-tile-badge--unavailable {
+  background: #667085;
+  font-size: 0.58rem;
+  padding: 2px 5px;
 }
 
 /* Connected channel card */

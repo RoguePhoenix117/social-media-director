@@ -1,4 +1,5 @@
 import { getDb } from '../db/client'
+import type { OperatorSession } from './session'
 
 export type Project = {
   id: string
@@ -47,6 +48,9 @@ export async function createProject(input: {
 
   try {
     await client.query('begin')
+    if (await operatorHasProjectName(client, input.operatorId, name)) {
+      throw new Error(`You already have a project named "${name}".`)
+    }
     const slug = await reserveUniqueSlug(client, name)
     const projectResult = await client.query<ProjectRow>(
       `insert into projects (name, slug)
@@ -101,6 +105,45 @@ export async function listOperatorProjects(operatorId: string): Promise<Operator
     [operatorId],
   )
   return result.rows.map(mapOperatorProjectRow)
+}
+
+/**
+ * Picks the active project id from the session, falling back to the operator's
+ * first project. Matches bootstrap behaviour so the UI and OAuth flows agree.
+ */
+export function pickActiveProjectId(
+  sessionActiveProjectId: string | null,
+  projects: OperatorProject[],
+): string | null {
+  if (
+    sessionActiveProjectId &&
+    projects.some((project) => project.id === sessionActiveProjectId)
+  ) {
+    return sessionActiveProjectId
+  }
+  return projects[0]?.id ?? null
+}
+
+/**
+ * Resolves (and persists) the operator's active project for server actions that
+ * require a project context — e.g. OAuth channel connection after re-login.
+ */
+export async function requireActiveProjectId(session: OperatorSession): Promise<string> {
+  const projects = await listOperatorProjects(session.operatorId)
+  const projectId = pickActiveProjectId(session.activeProjectId, projects)
+  if (!projectId) {
+    throw new Error('Create a project before connecting channels.')
+  }
+
+  if (projectId !== session.activeProjectId) {
+    await setActiveProject({
+      sessionId: session.sessionId,
+      operatorId: session.operatorId,
+      projectId,
+    })
+  }
+
+  return projectId
 }
 
 export async function getProject(projectId: string): Promise<Project | null> {
@@ -164,6 +207,30 @@ type SlugQueryClient = {
     text: string,
     values?: unknown[],
   ) => Promise<{ rows: T[] }>
+}
+
+type NameQueryClient = {
+  query: <T extends { exists?: boolean }>(
+    text: string,
+    values?: unknown[],
+  ) => Promise<{ rows: T[] }>
+}
+
+async function operatorHasProjectName(
+  client: NameQueryClient,
+  operatorId: string,
+  name: string,
+) {
+  const result = await client.query<{ exists: boolean }>(
+    `select true as exists
+     from projects p
+     inner join operator_projects op on op.project_id = p.id
+     where op.operator_id = $1
+       and lower(trim(p.name)) = lower(trim($2))
+     limit 1`,
+    [operatorId, name],
+  )
+  return Boolean(result.rows[0]?.exists)
 }
 
 async function reserveUniqueSlug(client: SlugQueryClient, name: string) {
