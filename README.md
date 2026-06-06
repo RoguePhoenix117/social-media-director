@@ -9,7 +9,9 @@ Open-source, self-hosted social posting dashboard for turning public blog posts 
 - One-click OAuth connection for X and LinkedIn — no manual token pasting.
 - Project-scoped workspaces: each project owns its own X + LinkedIn channels, drafts, and publish history.
 - First-run onboarding for the operator account, first project, channel connection, and AI setup.
-- Publish-now workflow through official provider APIs only.
+- Draft workspace: import, edit, and mark posts ready per project.
+- Post calendar: publish-now or schedule ready drafts (datetime + timezone).
+- Publish-now and scheduled posts through official provider APIs only.
 - No browser automation, no scraping logged-in dashboards, no automated UI clicking.
 
 ## Documentation
@@ -56,7 +58,8 @@ pnpm db:up
 The default `.env.example` connection string matches the Docker container:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/social_media_director
+DATABASE_URL=postgres://postgres:postgres@localhost:55432/social_media_director
+POSTGRES_HOST_PORT=55432
 ```
 
 Migrations in `migrations/` are mounted into Postgres' Docker init directory and run automatically the first time the `postgres-data` volume is created. To rebuild the database from scratch and rerun all migrations:

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { getRequestHeader, setResponseHeader } from '@tanstack/react-start/server'
+import { OperatorAuthError } from '../auth-errors'
 import { getDb } from '../db/client'
 import { hashToken } from './crypto'
 
@@ -56,7 +57,7 @@ export async function readOperatorSession(): Promise<OperatorSession | null> {
 
 export async function requireOperatorSession() {
   const session = await readOperatorSession()
-  if (!session) throw new Error('Unauthorized')
+  if (!session) throw new OperatorAuthError()
   return session
 }
 

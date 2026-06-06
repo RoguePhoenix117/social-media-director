@@ -4,9 +4,19 @@ import type { CodexCliStatus } from './server/codex-cli'
 import type { OperatorProject } from './server/projects'
 import type { PublicProjectChannel } from './server/provider-accounts'
 import type { InstanceOAuthProviders } from './server/instance-config'
+import type { DraftCounts, ScheduledPostItem } from './db/draft-types'
+import type { RecentPublishItem } from './db/repository'
 import type { PublicSettingsStatus } from './server/settings'
 
+export type { DraftCounts }
+
 export const bootstrapQueryKey = ['bootstrap-state'] as const
+
+export type DashboardOverviewData = {
+  draftCounts: DraftCounts
+  recentPublishes: RecentPublishItem[]
+  upcomingScheduled: ScheduledPostItem[]
+}
 
 export function bootstrapQueryOptions() {
   return queryOptions({
@@ -26,6 +36,9 @@ type BootstrapBase = {
   activeProjectId: string | null
   projects: OperatorProject[]
   connectedChannels: PublicProjectChannel[]
+  draftCounts: DraftCounts
+  recentPublishes: RecentPublishItem[]
+  upcomingScheduled: ScheduledPostItem[]
 }
 
 export type BootstrapState =
@@ -39,6 +52,9 @@ export type BootstrapState =
       onboardingDismissed: false
       settings: null
       codexCli: null
+      draftCounts: { draft: 0, ready: 0, published: 0, total: 0 }
+      recentPublishes: []
+      upcomingScheduled: []
     })
   | (BootstrapBase & {
       databaseAvailable: true

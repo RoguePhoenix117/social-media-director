@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { useState } from 'react'
 import { ActiveAiBackendControl } from '../../components/active-ai-backend-control'
@@ -7,7 +8,10 @@ import { AppLayout } from '../../components/app-layout'
 import { ChannelProgressButton } from '../../components/channel-progress-button'
 import { ConnectChannelsModal } from '../../components/connect-channels/connect-channels-modal'
 import { OnboardingWizard } from '../../components/onboarding/onboarding-wizard'
-import { LoginScreen } from '../../components/onboarding/login-screen'
+import {
+  OperatorAuthScreen,
+  type AuthTab,
+} from '../../components/onboarding/operator-auth-screen'
 import { ProjectSwitcher } from '../../components/project-switcher'
 import {
   bootstrapQueryKey,
@@ -31,9 +35,11 @@ import {
   type OnboardingStepResult,
 } from '../../server/projects'
 import { settingsPageQueryKey } from '../settings/settings-query'
+import { Link } from '@tanstack/react-router'
+import { FileEdit, Send } from 'lucide-react'
+import { DashboardOverview } from './dashboard-overview'
 import { DashboardStatusGrid } from './dashboard-status-grid'
 import { DatabaseSetupScreen } from './database-setup-screen'
-import { ImportWorkspace } from './import-workspace'
 
 /**
  * Authenticated dashboard composition. Handles three auth states:
@@ -49,7 +55,16 @@ import { ImportWorkspace } from './import-workspace'
  */
 type BootstrapLoaderData = Awaited<ReturnType<typeof getBootstrapState>>
 
-export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLoaderData }>) {
+type DashboardSearch = {
+  auth?: AuthTab
+  redirect?: string
+}
+
+export function DashboardScreen({
+  bootstrap,
+  search,
+}: Readonly<{ bootstrap: BootstrapLoaderData; search: DashboardSearch }>) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: authState, refetch: refetchBootstrap } = useQuery({
     ...bootstrapQueryOptions(),
@@ -95,53 +110,65 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
     return <DatabaseSetupScreen onRetry={() => void refetchBootstrap()} />
   }
 
-  if (!authState.hasOperator) {
-    return (
-        <OnboardingWizard
-          codexCli={authState.codexCli}
-          connectedChannels={[]}
-          instanceOAuthProviders={authState.instanceOAuthProviders}
-          mode="first-run"
-          projectCount={0}
-        onAccountSave={async (data) => {
-          const result = await saveAccountStepFn({ data })
-          updateBootstrapState({
-            databaseAvailable: true,
-            hasOperator: true,
-            isAuthenticated: true,
-            operatorEmail: data.email.toLowerCase(),
-            operatorFirstName: data.firstName ? data.firstName : null,
-            onboardingStepCompleted: result.onboardingStepCompleted,
-            onboardingDismissed: false,
-            settings: result.settings,
-            codexCli: result.codexCli,
-            instanceConfigured: authState.instanceConfigured,
-            instanceOAuthProviders: authState.instanceOAuthProviders,
-            isInstanceOwner: true,
-            activeProjectId: null,
-            projects: [],
-            connectedChannels: [],
-          })
-        }}
-        onCreateProject={async (input) => {
-          applyOnboardingResult(await createProjectStepFn({ data: input }))
-        }}
-        onCompleteChannels={async () => {
-          applyOnboardingResult(await completeChannelsStepFn())
-        }}
-        onCompleteOnboarding={async () => {
-          applyOnboardingResult(await completeOnboardingFn())
-        }}
-        onboardingStepCompleted={0}
-        settings={null}
-      />
-    )
+  async function afterAuthSuccess() {
+    await refetchBootstrap()
+    const refreshed = queryClient.getQueryData<BootstrapState>(bootstrapQueryKey) ?? authState
+    const returnPath = search.redirect
+    const onboardingDone =
+      refreshed.onboardingStepCompleted >= ONBOARDING_STEPS.complete ||
+      refreshed.onboardingDismissed
+    if (returnPath && returnPath.startsWith('/') && onboardingDone) {
+      void navigate({ href: returnPath })
+    }
   }
 
   if (!authState.isAuthenticated) {
+    const defaultTab: AuthTab =
+      search.auth ?? (authState.hasOperator ? 'login' : 'signup')
+
+    if (!authState.hasOperator) {
+      return (
+        <OperatorAuthScreen
+          defaultTab={defaultTab}
+          hasOperator={false}
+          redirectAfterAuth={search.redirect}
+          onLogin={async () => {
+            /* no operator yet */
+          }}
+          onSignUp={async (data) => {
+            const result = await saveAccountStepFn({ data })
+            updateBootstrapState({
+              databaseAvailable: true,
+              hasOperator: true,
+              isAuthenticated: true,
+              operatorEmail: data.email.toLowerCase(),
+              operatorFirstName: data.firstName ? data.firstName : null,
+              onboardingStepCompleted: result.onboardingStepCompleted,
+              onboardingDismissed: false,
+              settings: result.settings,
+              codexCli: result.codexCli,
+              instanceConfigured: authState.instanceConfigured,
+              instanceOAuthProviders: authState.instanceOAuthProviders,
+              isInstanceOwner: true,
+              activeProjectId: null,
+              projects: [],
+              connectedChannels: [],
+              draftCounts: { draft: 0, ready: 0, published: 0, total: 0 },
+              recentPublishes: [],
+              upcomingScheduled: [],
+            })
+            await afterAuthSuccess()
+          }}
+        />
+      )
+    }
+
     return (
-      <LoginScreen
-        onSubmit={async (data) => {
+      <OperatorAuthScreen
+        defaultTab={defaultTab}
+        hasOperator
+        redirectAfterAuth={search.redirect}
+        onLogin={async (data) => {
           const result = await loginOperatorFn({ data })
           updateBootstrapState({
             databaseAvailable: true,
@@ -159,7 +186,14 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
             activeProjectId: result.activeProjectId,
             projects: result.projects,
             connectedChannels: result.connectedChannels,
+            draftCounts: { draft: 0, ready: 0, published: 0, total: 0 },
+            recentPublishes: [],
+            upcomingScheduled: [],
           })
+          await afterAuthSuccess()
+        }}
+        onSignUp={async () => {
+          /* handled by tab message when hasOperator */
         }}
       />
     )
@@ -189,6 +223,9 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
       activeProjectId: null,
       projects: [],
       connectedChannels: [],
+      draftCounts: { draft: 0, ready: 0, published: 0, total: 0 },
+      recentPublishes: [],
+      upcomingScheduled: [],
     })
   }
 
@@ -223,8 +260,8 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
           <p className="eyebrow">MVP V1</p>
           <h1>Welcome to your Dashboard, {displayName}</h1>
           <p className="page-summary">
-            Import a public post, shape it with AI, and publish channel-ready drafts
-            from one self-hosted dashboard.
+            Overview of your project, channels, and recent activity. Create and edit
+            content on Draft; publish or schedule on Post.
           </p>
         </div>
         {totalChannelSlots > 0 ? (
@@ -237,11 +274,21 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
       </header>
 
       <DashboardStatusGrid
-        draftCount={0}
+        draftCount={authState.draftCounts.total}
         instanceOAuthProviders={authState.instanceOAuthProviders}
         onChannelsClick={() => setChannelsModalOpen(true)}
         settings={authState.settings}
       />
+
+      {authState.activeProjectId ? (
+        <DashboardOverview
+          data={{
+            draftCounts: authState.draftCounts,
+            recentPublishes: authState.recentPublishes,
+            upcomingScheduled: authState.upcomingScheduled,
+          }}
+        />
+      ) : null}
 
       {onboardingActive ? (
         <OnboardingWizard
@@ -297,10 +344,22 @@ export function DashboardScreen({ bootstrap }: Readonly<{ bootstrap: BootstrapLo
         )
       ) : null}
 
-      <ImportWorkspace
-        key={authState.activeProjectId ?? 'no-project'}
-        settings={authState.settings}
-      />
+      <section className="dashboard-quick-actions">
+        <Link className="quick-action-card" to="/draft">
+          <FileEdit aria-hidden="true" size={22} />
+          <div>
+            <h3>Drafts</h3>
+            <p>Import URLs, edit platform copy, mark ready.</p>
+          </div>
+        </Link>
+        <Link className="quick-action-card" to="/post">
+          <Send aria-hidden="true" size={22} />
+          <div>
+            <h3>Post calendar</h3>
+            <p>Publish now or schedule ready drafts.</p>
+          </div>
+        </Link>
+      </section>
 
       <ConnectChannelsModal
         connectedChannels={authState.connectedChannels}

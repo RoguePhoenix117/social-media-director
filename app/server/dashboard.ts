@@ -1,31 +1,25 @@
 import { createServerFn } from '@tanstack/react-start'
-import {
-  accountStepInputSchema,
-  importInputSchema,
-  loginInputSchema,
-  publishInputSchema,
-} from '../lib/dashboard-schemas'
+import { accountStepInputSchema, loginInputSchema } from '../lib/dashboard-schemas'
 import { getDb, queryWithTimeout } from '../lib/db/client'
 import { isDatabaseConnectionError } from '../lib/db/errors'
-import { validateProviderPayload } from '../lib/domain/validation'
-import { getProviderAdapter } from '../lib/providers'
 import { getCodexCliStatus, type CodexCliStatus } from '../lib/server/codex-cli'
-import { decryptSecret, hashPassword, verifyPassword } from '../lib/server/crypto'
+import { hashPassword, verifyPassword } from '../lib/server/crypto'
 import { isInstanceConfigured, getInstanceOAuthProviders } from '../lib/server/instance-config'
 import { logError, logInfo } from '../lib/server/logger'
 import {
   listOperatorProjects,
   pickActiveProjectId,
-  requireActiveProjectId,
   setActiveProject,
   type OperatorProject,
 } from '../lib/server/projects'
-import { ONBOARDING_STEPS } from '../lib/onboarding-steps'
 import {
-  getProjectChannel,
-  listPublicProjectChannels,
-  type PublicProjectChannel,
-} from '../lib/server/provider-accounts'
+  getDraftCounts,
+  listRecentPublishAttempts,
+  listScheduledPosts,
+} from '../lib/db/repository'
+import { startSchedulePoller } from '../lib/jobs/schedule-poller'
+import { ONBOARDING_STEPS } from '../lib/onboarding-steps'
+import { listPublicProjectChannels, type PublicProjectChannel } from '../lib/server/provider-accounts'
 import {
   createOperatorSession,
   destroyCurrentSession,
@@ -33,8 +27,6 @@ import {
   requireOperatorSession,
 } from '../lib/server/session'
 import {
-  getAppSettings,
-  getGenerationAiConfig,
   getPublicSettingsStatus,
 } from '../lib/server/settings'
 
@@ -67,6 +59,9 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
         activeProjectId: null,
         projects: [],
         connectedChannels: [],
+        draftCounts: { draft: 0, ready: 0, published: 0, total: 0 },
+        recentPublishes: [],
+        upcomingScheduled: [],
       }
     }
 
@@ -109,9 +104,29 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     isAuthenticated: Boolean(session),
     hasCodexStatus: Boolean(codexCli),
     instanceConfigured,
-    instanceOAuthProviders,
+    xOAuthEnabled: instanceOAuthProviders.x,
+    linkedinOAuthEnabled: instanceOAuthProviders.linkedin,
     projectCount: projects.length,
   })
+
+  startSchedulePoller()
+
+  let draftCounts = { draft: 0, ready: 0, published: 0, total: 0 }
+  let recentPublishes: Awaited<ReturnType<typeof listRecentPublishAttempts>> = []
+  let upcomingScheduled: Awaited<ReturnType<typeof listScheduledPosts>> = []
+
+  if (activeProjectId) {
+    draftCounts = await getDraftCounts(activeProjectId)
+    recentPublishes = await listRecentPublishAttempts(activeProjectId, 5)
+    const now = new Date()
+    upcomingScheduled = await listScheduledPosts(activeProjectId, {
+      start: now.toISOString(),
+      end: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    upcomingScheduled = upcomingScheduled
+      .filter((post) => post.status === 'scheduled')
+      .slice(0, 5)
+  }
 
   return {
     databaseAvailable: true,
@@ -129,6 +144,9 @@ export const getBootstrapState = createServerFn({ method: 'GET' }).handler(async
     activeProjectId,
     projects,
     connectedChannels,
+    draftCounts,
+    recentPublishes,
+    upcomingScheduled,
   }
 })
 
@@ -265,98 +283,3 @@ export const dismissOnboardingWizard = createServerFn({ method: 'POST' }).handle
   return { onboardingDismissed: true }
 })
 
-export const importAndGenerate = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => importInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const startedAt = Date.now()
-    try {
-      const session = await requireOperatorSession()
-      logInfo('import_generate.start', {
-        url: data.url,
-        hasIntentPrompt: Boolean(data.intentPrompt?.trim()),
-      })
-      const settings = await getAppSettings()
-      const generationConfig = getGenerationAiConfig(settings)
-      logInfo('import_generate.settings_loaded', {
-        activeAiBackendType: settings.activeAiBackendType,
-        hasOpenAiKey: Boolean(settings.openaiApiKey),
-        openaiModel: settings.openaiModel,
-        codexCliModel: settings.codexCliModel,
-      })
-      const { importPublicBlogUrl } = await import('../lib/import/public-url')
-      const source = await importPublicBlogUrl(data.url)
-      logInfo('import_generate.source_imported', {
-        canonicalUrl: source.canonicalUrl,
-        hasImage: Boolean(source.imageUrl),
-      })
-      const { generateProviderVariants } = await import('../lib/ai/generate-variants')
-      const variants = await generateProviderVariants(
-        {
-          source,
-          intentPrompt: data.intentPrompt,
-        },
-        generationConfig ?? undefined,
-      )
-      const mappedVariants = variants.map((variant) => ({
-        ...variant,
-        validation: validateProviderPayload(variant.provider, variant),
-      }))
-
-      if (session.activeProjectId) {
-        const { saveImportedDraft } = await import('../lib/db/repository')
-        await saveImportedDraft(source, variants, {
-          intentPrompt: data.intentPrompt,
-          projectId: session.activeProjectId,
-        })
-      }
-
-      logInfo('import_generate.success', {
-        durationMs: Date.now() - startedAt,
-        variantCount: variants.length,
-        projectId: session.activeProjectId,
-      })
-
-      return {
-        source,
-        variants: mappedVariants,
-      }
-    } catch (error) {
-      logError('import_generate.failure', error, {
-        durationMs: Date.now() - startedAt,
-      })
-      throw error
-    }
-  })
-
-export const publishVariant = createServerFn({ method: 'POST' })
-  .inputValidator((input: unknown) => publishInputSchema.parse(input))
-  .handler(async ({ data }) => {
-    const session = await requireOperatorSession()
-    const activeProjectId = await requireActiveProjectId(session)
-
-    const channel = await getProjectChannel(activeProjectId, data.provider)
-    if (!channel) {
-      const label = data.provider === 'linkedin' ? 'LinkedIn' : 'X'
-      throw new Error(
-        `${label} is not connected for this project. Open the Connect Channels modal first.`,
-      )
-    }
-
-    const adapter = getProviderAdapter(data.provider, {
-      linkedinAuthorUrn: channel.authorUrn ?? undefined,
-      linkedinApiVersion: undefined,
-    })
-
-    if (data.provider === 'linkedin' && !channel.authorUrn) {
-      throw new Error('LinkedIn channel is missing the author URN. Reconnect LinkedIn.')
-    }
-
-    const token = decryptSecret(channel.accessTokenCiphertext)
-    const result = await adapter.publish(data, token)
-    return {
-      providerPostId: result.providerPostId,
-      providerPostUrl: result.providerPostUrl,
-    }
-  })
-
-export type ImportResult = Awaited<ReturnType<typeof importAndGenerate>>

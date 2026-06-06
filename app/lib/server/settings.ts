@@ -16,8 +16,17 @@ export type OperatorAiSettings = {
   activeAiBackendType: AiBackendType | null
   openaiApiKey?: string
   openaiModel?: string
+  ollamaHost?: string
+  ollamaModel?: string
+  openaiCompatibleProviderName?: string
+  openaiCompatibleBaseUrl?: string
+  openaiCompatibleApiKey?: string
+  openaiCompatibleModel?: string
   codexCliModel?: string
+  templateVerifiedAt?: string | null
   openaiVerifiedAt?: string | null
+  ollamaVerifiedAt?: string | null
+  openaiCompatibleVerifiedAt?: string | null
   codexVerifiedAt?: string | null
 }
 
@@ -27,13 +36,21 @@ export type AppSettings = OperatorAiSettings
 export type PublicSettingsStatus = {
   modelConfigured: boolean
   activeAiBackendType: AiBackendType | null
+  templateConfigured: boolean
   openaiConfigured: boolean
+  ollamaConfigured: boolean
+  openaiCompatibleConfigured: boolean
   codexConfigured: boolean
   codexReady: boolean
   codexCliEnabled: boolean
   xConfigured: boolean
   linkedinConfigured: boolean
   openaiModel?: string
+  ollamaHost?: string
+  ollamaModel?: string
+  openaiCompatibleProviderName?: string
+  openaiCompatibleBaseUrl?: string
+  openaiCompatibleModel?: string
   codexCliModel?: string
   configuredAiBackendTypes: AiBackendType[]
 }
@@ -56,6 +73,15 @@ type OperatorAiSettingsRow = {
   active_ai_backend_type: string | null
   openai_api_key_ciphertext: string | null
   openai_model: string | null
+  template_verified_at: string | null
+  ollama_host: string | null
+  ollama_model: string | null
+  ollama_verified_at: string | null
+  openai_compatible_provider_name: string | null
+  openai_compatible_base_url: string | null
+  openai_compatible_api_key_ciphertext: string | null
+  openai_compatible_model: string | null
+  openai_compatible_verified_at: string | null
   codex_cli_model: string | null
   openai_verified_at: string | null
   codex_verified_at: string | null
@@ -67,6 +93,15 @@ async function loadOperatorAiSettings(operatorId: string): Promise<OperatorAiSet
        active_ai_backend_type,
        openai_api_key_ciphertext,
        openai_model,
+       template_verified_at,
+       ollama_host,
+       ollama_model,
+       ollama_verified_at,
+       openai_compatible_provider_name,
+       openai_compatible_base_url,
+       openai_compatible_api_key_ciphertext,
+       openai_compatible_model,
+       openai_compatible_verified_at,
        codex_cli_model,
        openai_verified_at,
        codex_verified_at
@@ -90,6 +125,17 @@ function mapOperatorAiSettingsRow(row: OperatorAiSettingsRow | undefined): Opera
       ? decryptSecret(row.openai_api_key_ciphertext)
       : undefined,
     openaiModel: row.openai_model ?? undefined,
+    templateVerifiedAt: row.template_verified_at,
+    ollamaHost: row.ollama_host ?? undefined,
+    ollamaModel: row.ollama_model ?? undefined,
+    ollamaVerifiedAt: row.ollama_verified_at,
+    openaiCompatibleProviderName: row.openai_compatible_provider_name ?? undefined,
+    openaiCompatibleBaseUrl: row.openai_compatible_base_url ?? undefined,
+    openaiCompatibleApiKey: row.openai_compatible_api_key_ciphertext
+      ? decryptSecret(row.openai_compatible_api_key_ciphertext)
+      : undefined,
+    openaiCompatibleModel: row.openai_compatible_model ?? undefined,
+    openaiCompatibleVerifiedAt: row.openai_compatible_verified_at,
     codexCliModel: row.codex_cli_model ?? undefined,
     openaiVerifiedAt: row.openai_verified_at,
     codexVerifiedAt: row.codex_verified_at,
@@ -103,20 +149,38 @@ export async function getPublicSettingsStatus(options?: {
   const settings = await getAppSettings()
   const checkCodexAuth = options?.checkCodexAuth ?? true
   const codexStatus = checkCodexAuth ? await getCodexCliStatus() : null
+  const templateConfigured = Boolean(settings.templateVerifiedAt)
   const openaiConfigured = Boolean(
     settings.openaiApiKey && settings.openaiModel && settings.openaiVerifiedAt,
+  )
+  const ollamaConfigured = Boolean(
+    settings.ollamaHost && settings.ollamaModel && settings.ollamaVerifiedAt,
+  )
+  const openaiCompatibleConfigured = Boolean(
+    settings.openaiCompatibleBaseUrl &&
+      settings.openaiCompatibleModel &&
+      settings.openaiCompatibleVerifiedAt,
   )
   const codexConfigured = Boolean(settings.codexCliModel && settings.codexVerifiedAt)
   const codexReady = codexConfigured && (checkCodexAuth ? Boolean(codexStatus?.authenticated) : false)
   const configuredAiBackendTypes: AiBackendType[] = []
 
+  if (templateConfigured) configuredAiBackendTypes.push('template')
   if (openaiConfigured) configuredAiBackendTypes.push('openaiApiKey')
+  if (ollamaConfigured) configuredAiBackendTypes.push('ollama')
+  if (openaiCompatibleConfigured) configuredAiBackendTypes.push('openaiCompatible')
   if (codexReady) configuredAiBackendTypes.push('codexCli')
 
   const activeAiBackendType = settings.activeAiBackendType
   const activeReady =
     activeAiBackendType === 'openaiApiKey'
       ? openaiConfigured
+      : activeAiBackendType === 'ollama'
+        ? ollamaConfigured
+        : activeAiBackendType === 'openaiCompatible'
+          ? openaiCompatibleConfigured
+          : activeAiBackendType === 'template'
+            ? templateConfigured
       : activeAiBackendType === 'codexCli'
         ? codexReady
         : false
@@ -126,13 +190,21 @@ export async function getPublicSettingsStatus(options?: {
   return {
     modelConfigured: configuredAiBackendTypes.length > 0 && Boolean(activeAiBackendType && activeReady),
     activeAiBackendType,
+    templateConfigured,
     openaiConfigured,
+    ollamaConfigured,
+    openaiCompatibleConfigured,
     codexConfigured,
     codexReady,
     codexCliEnabled: activeAiBackendType === 'codexCli',
     xConfigured: channelStatus.xConfigured,
     linkedinConfigured: channelStatus.linkedinConfigured,
     openaiModel: settings.openaiModel,
+    ollamaHost: settings.ollamaHost,
+    ollamaModel: settings.ollamaModel,
+    openaiCompatibleProviderName: settings.openaiCompatibleProviderName,
+    openaiCompatibleBaseUrl: settings.openaiCompatibleBaseUrl,
+    openaiCompatibleModel: settings.openaiCompatibleModel,
     codexCliModel: settings.codexCliModel,
     configuredAiBackendTypes,
   }
@@ -160,6 +232,12 @@ export async function saveOperatorAiConnection(
   input: {
     openaiApiKey?: string
     openaiModel?: string
+    ollamaHost?: string
+    ollamaModel?: string
+    openaiCompatibleProviderName?: string
+    openaiCompatibleBaseUrl?: string
+    openaiCompatibleApiKey?: string
+    openaiCompatibleModel?: string
     codexCliModel?: string
     markVerified?: boolean
     setActiveIfUnset?: boolean
@@ -183,6 +261,64 @@ export async function saveOperatorAiConnection(
         operatorId,
         input.openaiApiKey ? encryptSecret(input.openaiApiKey.trim()) : null,
         input.openaiModel ?? null,
+        Boolean(input.markVerified),
+        setActive ?? null,
+      ],
+    )
+    return
+  }
+
+  if (backendType === 'template') {
+    await getDb().query(
+      `update operator_settings
+       set template_verified_at = case when $2 then now() else template_verified_at end,
+           active_ai_backend_type = coalesce($3, active_ai_backend_type),
+           updated_at = now()
+       where operator_id = $1`,
+      [operatorId, Boolean(input.markVerified), setActive ?? null],
+    )
+    return
+  }
+
+  if (backendType === 'ollama') {
+    await getDb().query(
+      `update operator_settings
+       set ollama_host = coalesce($2, ollama_host),
+           ollama_model = coalesce($3, ollama_model),
+           ollama_verified_at = case when $4 then now() else ollama_verified_at end,
+           active_ai_backend_type = coalesce($5, active_ai_backend_type),
+           updated_at = now()
+       where operator_id = $1`,
+      [
+        operatorId,
+        input.ollamaHost ?? null,
+        input.ollamaModel ?? null,
+        Boolean(input.markVerified),
+        setActive ?? null,
+      ],
+    )
+    return
+  }
+
+  if (backendType === 'openaiCompatible') {
+    await getDb().query(
+      `update operator_settings
+       set openai_compatible_provider_name = coalesce($2, openai_compatible_provider_name),
+           openai_compatible_base_url = coalesce($3, openai_compatible_base_url),
+           openai_compatible_api_key_ciphertext = coalesce($4, openai_compatible_api_key_ciphertext),
+           openai_compatible_model = coalesce($5, openai_compatible_model),
+           openai_compatible_verified_at = case when $6 then now() else openai_compatible_verified_at end,
+           active_ai_backend_type = coalesce($7, active_ai_backend_type),
+           updated_at = now()
+       where operator_id = $1`,
+      [
+        operatorId,
+        input.openaiCompatibleProviderName ?? null,
+        input.openaiCompatibleBaseUrl ?? null,
+        input.openaiCompatibleApiKey
+          ? encryptSecret(input.openaiCompatibleApiKey.trim())
+          : null,
+        input.openaiCompatibleModel ?? null,
         Boolean(input.markVerified),
         setActive ?? null,
       ],
@@ -225,6 +361,30 @@ export function getGenerationAiConfig(settings: AppSettings & OperatorAiSettings
     return {
       aiProvider: 'codexCli' as const,
       codexCliModel: settings.codexCliModel,
+    }
+  }
+
+  if (active === 'template') {
+    return {
+      aiProvider: 'template' as const,
+    }
+  }
+
+  if (active === 'ollama') {
+    return {
+      aiProvider: 'ollama' as const,
+      ollamaHost: settings.ollamaHost,
+      ollamaModel: settings.ollamaModel,
+    }
+  }
+
+  if (active === 'openaiCompatible') {
+    return {
+      aiProvider: 'openaiCompatible' as const,
+      openaiCompatibleProviderName: settings.openaiCompatibleProviderName,
+      openaiCompatibleBaseUrl: settings.openaiCompatibleBaseUrl,
+      openaiCompatibleApiKey: settings.openaiCompatibleApiKey,
+      openaiCompatibleModel: settings.openaiCompatibleModel,
     }
   }
 

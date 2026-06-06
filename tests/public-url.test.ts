@@ -32,4 +32,21 @@ describe('parseBlogHtml', () => {
     expect(source.body).toContain('focused MVP')
     expect(source.body).not.toContain('Navigation')
   })
+
+  it('drops GitHub opengraph preview images that rate-limit in browsers', () => {
+    const source = parseBlogHtml(
+      `
+        <html>
+          <head>
+            <meta property="og:image" content="https://opengraph.githubassets.com/abc/org/repo" />
+          </head>
+          <body><article><p>Repo readme content.</p></article></body>
+        </html>
+      `,
+      'https://github.com/org/repo',
+    )
+
+    expect(source.imageUrl).toBeUndefined()
+    expect(source.excerpt).toBe('Repo readme content.')
+  })
 })

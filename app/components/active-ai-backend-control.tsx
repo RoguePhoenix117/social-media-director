@@ -42,7 +42,12 @@ export function ActiveAiBackendControl({ settings, onChange }: ActiveAiBackendCo
         {options.map((type) => (
           <option key={type} value={type}>
             {aiBackendLabels[type]}
+            {type === 'template' ? ' · deterministic' : ''}
             {type === 'openaiApiKey' && settings.openaiModel ? ` · ${settings.openaiModel}` : ''}
+            {type === 'ollama' && settings.ollamaModel ? ` · ${settings.ollamaModel}` : ''}
+            {type === 'openaiCompatible' && settings.openaiCompatibleModel
+              ? ` · ${settings.openaiCompatibleModel}`
+              : ''}
             {type === 'codexCli' && settings.codexCliModel ? ` · ${settings.codexCliModel}` : ''}
           </option>
         ))}

@@ -22,18 +22,33 @@ import {
   invokeServerFn,
 } from '../lib/server-fn-error'
 import type { CodexCliStatus } from '../lib/server/codex-cli'
+import {
+  DEFAULT_OLLAMA_HOST,
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+} from '../lib/server/local-ai-models'
 import type { PublicSettingsStatus } from '../lib/server/settings'
 import {
   saveCodexConnection,
+  saveOllamaConnection,
   saveOpenAiConnection,
+  saveOpenAiCompatibleConnection,
+  saveTemplateConnection,
   testCodexConnection,
+  testOllamaConnection,
   testOpenAiConnection,
+  testOpenAiCompatibleConnection,
 } from '../server/ai-workspace'
 
 const backendFormSchema = z.object({
   backendType: z.union([z.literal(''), z.enum(aiBackendTypes)]),
   openaiApiKey: z.string(),
   openaiModel: z.string(),
+  ollamaHost: z.string(),
+  ollamaModel: z.string(),
+  openaiCompatibleProviderName: z.string(),
+  openaiCompatibleBaseUrl: z.string(),
+  openaiCompatibleApiKey: z.string(),
+  openaiCompatibleModel: z.string(),
   codexCliModel: z.string(),
 })
 
@@ -49,7 +64,10 @@ type AiWorkspaceProps = {
 
 function initialBackendType(settings: PublicSettingsStatus): '' | AiBackendType {
   if (settings.activeAiBackendType) return settings.activeAiBackendType
+  if (settings.templateConfigured) return 'template'
   if (settings.openaiConfigured) return 'openaiApiKey'
+  if (settings.ollamaConfigured) return 'ollama'
+  if (settings.openaiCompatibleConfigured) return 'openaiCompatible'
   if (settings.codexReady) return 'codexCli'
   return ''
 }
@@ -64,8 +82,13 @@ export function AiWorkspace({
   compactIntro = false,
 }: AiWorkspaceProps) {
   const testOpenAiFn = useServerFn(testOpenAiConnection)
+  const testOllamaFn = useServerFn(testOllamaConnection)
+  const testOpenAiCompatibleFn = useServerFn(testOpenAiCompatibleConnection)
   const testCodexFn = useServerFn(testCodexConnection)
+  const saveTemplateFn = useServerFn(saveTemplateConnection)
   const saveOpenAiFn = useServerFn(saveOpenAiConnection)
+  const saveOllamaFn = useServerFn(saveOllamaConnection)
+  const saveOpenAiCompatibleFn = useServerFn(saveOpenAiCompatibleConnection)
   const saveCodexFn = useServerFn(saveCodexConnection)
 
   const [openaiModels, setOpenaiModels] = useState<string[]>(
@@ -74,7 +97,17 @@ export function AiWorkspace({
   const [codexModels, setCodexModels] = useState<string[]>(
     settings.codexCliModel ? [settings.codexCliModel] : [],
   )
+  const [ollamaModels, setOllamaModels] = useState<string[]>(
+    settings.ollamaModel ? [settings.ollamaModel] : [],
+  )
+  const [openaiCompatibleModels, setOpenaiCompatibleModels] = useState<string[]>(
+    settings.openaiCompatibleModel ? [settings.openaiCompatibleModel] : [],
+  )
   const [openaiTested, setOpenaiTested] = useState(settings.openaiConfigured)
+  const [ollamaTested, setOllamaTested] = useState(settings.ollamaConfigured)
+  const [openaiCompatibleTested, setOpenaiCompatibleTested] = useState(
+    settings.openaiCompatibleConfigured,
+  )
   const [codexTested, setCodexTested] = useState(settings.codexReady)
   const [codexStatus, setCodexStatus] = useState<CodexCliStatus | null>(codexCli)
   const [testError, setTestError] = useState<string>()
@@ -91,6 +124,14 @@ export function AiWorkspace({
       backendType: initialBackendType(settings),
       openaiApiKey: '',
       openaiModel: settings.openaiModel ?? '',
+      ollamaHost: settings.ollamaHost ?? DEFAULT_OLLAMA_HOST,
+      ollamaModel: settings.ollamaModel ?? '',
+      openaiCompatibleProviderName:
+        settings.openaiCompatibleProviderName ?? 'LM Studio',
+      openaiCompatibleBaseUrl:
+        settings.openaiCompatibleBaseUrl ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+      openaiCompatibleApiKey: '',
+      openaiCompatibleModel: settings.openaiCompatibleModel ?? '',
       codexCliModel: settings.codexCliModel ?? '',
     },
     validators: {
@@ -107,6 +148,14 @@ export function AiWorkspace({
       setMessage(undefined)
 
       try {
+        if (value.backendType === 'template') {
+          const nextSettings = await saveTemplateFn({ data: {} })
+          toast.success('Template mode enabled.')
+          setMessage('Template mode enabled.')
+          await onSaved?.(nextSettings)
+          return
+        }
+
         if (value.backendType === 'openaiApiKey') {
           if (!openaiTested) {
             setTestError('Test the API key before saving.')
@@ -122,6 +171,43 @@ export function AiWorkspace({
           setMessage('OpenAI settings saved.')
           await onSaved?.(nextSettings)
           form.setFieldValue('openaiApiKey', '')
+          return
+        }
+
+        if (value.backendType === 'ollama') {
+          if (!ollamaTested) {
+            setTestError('Test the Ollama connection before saving.')
+            return
+          }
+          const nextSettings = await saveOllamaFn({
+            data: {
+              ollamaHost: value.ollamaHost,
+              ollamaModel: value.ollamaModel,
+            },
+          })
+          toast.success('Ollama settings saved.')
+          setMessage('Ollama settings saved.')
+          await onSaved?.(nextSettings)
+          return
+        }
+
+        if (value.backendType === 'openaiCompatible') {
+          if (!openaiCompatibleTested) {
+            setTestError('Test the OpenAI-compatible connection before saving.')
+            return
+          }
+          const nextSettings = await saveOpenAiCompatibleFn({
+            data: {
+              providerName: value.openaiCompatibleProviderName,
+              baseUrl: value.openaiCompatibleBaseUrl,
+              apiKey: value.openaiCompatibleApiKey || undefined,
+              model: value.openaiCompatibleModel,
+            },
+          })
+          toast.success('OpenAI-compatible settings saved.')
+          setMessage('OpenAI-compatible settings saved.')
+          await onSaved?.(nextSettings)
+          form.setFieldValue('openaiCompatibleApiKey', '')
           return
         }
 
@@ -172,6 +258,65 @@ export function AiWorkspace({
       toast.success(
         `OpenAI key valid. ${models.length} models loaded — ${recommended} recommended for social posts.`,
       )
+    } catch (caught) {
+      const errorMessage = formatServerFunctionError(caught)
+      setTestError(errorMessage)
+      toast.error(errorMessage)
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  async function runOllamaTest() {
+    setIsTesting(true)
+    setTestError(undefined)
+    setOllamaTested(false)
+    onMarkUnsaved?.()
+
+    try {
+      const result = await invokeServerFn(() =>
+        testOllamaFn({ data: { ollamaHost: form.state.values.ollamaHost } }),
+      )
+      setOllamaModels(result.models)
+      form.setFieldValue('ollamaHost', result.host)
+      if (!result.models.includes(form.state.values.ollamaModel)) {
+        form.setFieldValue('ollamaModel', result.models[0] ?? '')
+      }
+      setOllamaTested(true)
+      toast.success(`Ollama connected. ${result.models.length} local models loaded.`)
+    } catch (caught) {
+      const errorMessage = formatServerFunctionError(caught)
+      setTestError(errorMessage)
+      toast.error(errorMessage)
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  async function runOpenAiCompatibleTest() {
+    setIsTesting(true)
+    setTestError(undefined)
+    setOpenaiCompatibleTested(false)
+    onMarkUnsaved?.()
+
+    try {
+      const result = await invokeServerFn(() =>
+        testOpenAiCompatibleFn({
+          data: {
+            providerName: form.state.values.openaiCompatibleProviderName,
+            baseUrl: form.state.values.openaiCompatibleBaseUrl,
+            apiKey: form.state.values.openaiCompatibleApiKey || undefined,
+          },
+        }),
+      )
+      setOpenaiCompatibleModels(result.models)
+      form.setFieldValue('openaiCompatibleProviderName', result.providerName)
+      form.setFieldValue('openaiCompatibleBaseUrl', result.baseUrl)
+      if (!result.models.includes(form.state.values.openaiCompatibleModel)) {
+        form.setFieldValue('openaiCompatibleModel', result.models[0] ?? '')
+      }
+      setOpenaiCompatibleTested(true)
+      toast.success(`${result.providerName} connected. ${result.models.length} models loaded.`)
     } catch (caught) {
       const errorMessage = formatServerFunctionError(caught)
       setTestError(errorMessage)
@@ -238,6 +383,8 @@ export function AiWorkspace({
                   setTestError(undefined)
                   setMessage(undefined)
                   setOpenaiTested(false)
+                  setOllamaTested(false)
+                  setOpenaiCompatibleTested(false)
                   setCodexTested(false)
                   field.handleChange(value as '' | AiBackendType)
                 }}
@@ -338,6 +485,224 @@ export function AiWorkspace({
                       {DEFAULT_OPENAI_SOCIAL_MODEL} when available). Reasoning models (o-series)
                       are overkill here.
                     </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+            </div>
+          </div>
+        ) : null}
+
+        {backendType === 'template' ? (
+          <div className="ai-method-panel">
+            <div className="auth-state-card connected">
+              <CheckCircle2 aria-hidden="true" size={18} />
+              <div>
+                <strong>No AI key required</strong>
+                <p>
+                  Template mode creates deterministic review drafts from the imported
+                  source. It is useful for demos, offline setup, and fallback workflows,
+                  but it is not model-generated copy.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {backendType === 'ollama' ? (
+          <div className="ai-method-panel">
+            <div className="auth-state-card connected">
+              <CheckCircle2 aria-hidden="true" size={18} />
+              <div>
+                <strong>Local Ollama server</strong>
+                <p>
+                  Run Ollama locally and pull a model such as <code>llama3.2:3b</code>
+                  , <code>qwen3:4b</code>, or another installed text model.
+                </p>
+              </div>
+            </div>
+
+            <div className="ai-method-grid">
+              <form.Field name="ollamaHost">
+                {(field) => (
+                  <label>
+                    Ollama host
+                    <div className="input-with-action">
+                      <input
+                        name={field.name}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          onMarkUnsaved?.()
+                          setOllamaTested(false)
+                          field.handleChange(event.target.value)
+                        }}
+                        placeholder={DEFAULT_OLLAMA_HOST}
+                        type="url"
+                        value={field.state.value}
+                      />
+                      <button
+                        className="secondary-button"
+                        disabled={isTesting || !field.state.value.trim()}
+                        onClick={() => void runOllamaTest()}
+                        type="button"
+                      >
+                        Test server
+                      </button>
+                    </div>
+                    <small className="field-guidance">
+                      Default local endpoint: {DEFAULT_OLLAMA_HOST}. Local models may
+                      take longer than hosted APIs.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+
+              <form.Field name="ollamaModel">
+                {(field) => (
+                  <label>
+                    Ollama model
+                    <select
+                      disabled={!ollamaTested || ollamaModels.length === 0}
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        onMarkUnsaved?.()
+                        field.handleChange(event.target.value)
+                      }}
+                      value={field.state.value}
+                    >
+                      {!ollamaTested ? <option value="">Test server to load models</option> : null}
+                      {ollamaModels.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {modelId}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+            </div>
+          </div>
+        ) : null}
+
+        {backendType === 'openaiCompatible' ? (
+          <div className="ai-method-panel">
+            <div className="auth-state-card connected">
+              <ExternalLink aria-hidden="true" size={18} />
+              <div>
+                <strong>OpenAI-compatible API</strong>
+                <p>
+                  Use LM Studio, Ollama&apos;s /v1 endpoint, vLLM, LocalAI, or another
+                  server that exposes OpenAI-compatible <code>/models</code> and chat
+                  endpoints.
+                </p>
+              </div>
+            </div>
+
+            <div className="ai-method-grid">
+              <form.Field name="openaiCompatibleProviderName">
+                {(field) => (
+                  <label>
+                    Provider label
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder="LM Studio"
+                      value={field.state.value}
+                    />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+
+              <form.Field name="openaiCompatibleBaseUrl">
+                {(field) => (
+                  <label>
+                    Base URL
+                    <div className="input-with-action">
+                      <input
+                        name={field.name}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          onMarkUnsaved?.()
+                          setOpenaiCompatibleTested(false)
+                          field.handleChange(event.target.value)
+                        }}
+                        placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
+                        type="url"
+                        value={field.state.value}
+                      />
+                      <button
+                        className="secondary-button"
+                        disabled={isTesting || !field.state.value.trim()}
+                        onClick={() => void runOpenAiCompatibleTest()}
+                        type="button"
+                      >
+                        Test server
+                      </button>
+                    </div>
+                    <small className="field-guidance">
+                      LM Studio commonly uses {DEFAULT_OPENAI_COMPATIBLE_BASE_URL};
+                      Ollama&apos;s compatible endpoint commonly uses http://localhost:11434/v1.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+
+              <form.Field name="openaiCompatibleApiKey">
+                {(field) => (
+                  <label>
+                    API key
+                    <input
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        onMarkUnsaved?.()
+                        field.handleChange(event.target.value)
+                      }}
+                      placeholder={
+                        settings.openaiCompatibleConfigured
+                          ? 'Configured — paste to replace'
+                          : 'local'
+                      }
+                      type="password"
+                      value={field.state.value}
+                    />
+                    <small className="field-guidance">
+                      Many local servers accept any placeholder key.
+                    </small>
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </label>
+                )}
+              </form.Field>
+
+              <form.Field name="openaiCompatibleModel">
+                {(field) => (
+                  <label>
+                    Model
+                    <select
+                      disabled={!openaiCompatibleTested || openaiCompatibleModels.length === 0}
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        onMarkUnsaved?.()
+                        field.handleChange(event.target.value)
+                      }}
+                      value={field.state.value}
+                    >
+                      {!openaiCompatibleTested ? (
+                        <option value="">Test server to load models</option>
+                      ) : null}
+                      {openaiCompatibleModels.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {modelId}
+                        </option>
+                      ))}
+                    </select>
                     <FieldErrors errors={field.state.meta.errors} />
                   </label>
                 )}

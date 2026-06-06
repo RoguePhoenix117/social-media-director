@@ -98,6 +98,7 @@ function buildCards(
       value: draftCount ? String(draftCount) : '0',
       isReady: draftCount > 0,
       icon: PenLine,
+      action: { label: 'Open drafts', to: '/draft' },
     },
   ]
 }
@@ -109,8 +110,18 @@ function channelStatusValue(connected: boolean | undefined, enabledOnInstance: b
 
 function aiModelStatusValue(settings: PublicSettingsStatus | null) {
   if (!settings?.modelConfigured) return 'Missing'
+  if (settings.activeAiBackendType === 'template') {
+    return 'Ready: Template mode'
+  }
   if (settings.activeAiBackendType === 'codexCli') {
     return `Ready: Codex CLI / ${settings.codexCliModel ?? 'model'}`
+  }
+  if (settings.activeAiBackendType === 'ollama') {
+    return `Ready: Ollama / ${settings.ollamaModel ?? 'model'}`
+  }
+  if (settings.activeAiBackendType === 'openaiCompatible') {
+    const label = settings.openaiCompatibleProviderName ?? 'OpenAI-compatible'
+    return `Ready: ${label} / ${settings.openaiCompatibleModel ?? 'model'}`
   }
   if (settings.activeAiBackendType === 'openaiApiKey') {
     return `Ready: OpenAI API / ${settings.openaiModel ?? 'model'}`

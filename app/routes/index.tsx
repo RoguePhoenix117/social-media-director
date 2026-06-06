@@ -1,11 +1,19 @@
-import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
+import { Navigate, createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
+import { z } from 'zod'
 import { bootstrapQueryOptions } from '../lib/bootstrap-query'
 import { isDatabaseConnectionError } from '../lib/db/errors'
+import { isOperatorAuthError } from '../lib/auth-errors'
 import { DashboardScreen } from '../features/dashboard/dashboard-screen'
 import { DatabaseSetupScreen } from '../features/dashboard/database-setup-screen'
 
+const indexSearchSchema = z.object({
+  auth: z.enum(['login', 'signup']).optional(),
+  redirect: z.string().optional(),
+})
+
 export const Route = createFileRoute('/')({
+  validateSearch: indexSearchSchema,
   loader: async ({ context }) => {
     const bootstrap = await context.queryClient.ensureQueryData(bootstrapQueryOptions())
     if (bootstrap.databaseAvailable && !bootstrap.instanceConfigured) {
@@ -19,13 +27,18 @@ export const Route = createFileRoute('/')({
 
 function DashboardRoute() {
   const bootstrap = Route.useLoaderData()
-  return <DashboardScreen bootstrap={bootstrap} />
+  const search = Route.useSearch()
+  return <DashboardScreen bootstrap={bootstrap} search={search} />
 }
 
 function DashboardError({ error }: ErrorComponentProps) {
   const router = useRouter()
   if (isDatabaseConnectionError(error)) {
     return <DatabaseSetupScreen onRetry={() => void router.invalidate()} />
+  }
+
+  if (isOperatorAuthError(error)) {
+    return <Navigate replace search={{ auth: 'login' }} to="/" />
   }
 
   return (

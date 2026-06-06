@@ -1,6 +1,7 @@
 import {
   HeadContent,
   Link,
+  Navigate,
   Outlet,
   Scripts,
   createRootRouteWithContext,
@@ -16,6 +17,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import type { ReactNode } from 'react'
 import { Toaster } from 'sonner'
 import { DesignProvider, parseDesignPreferences } from '../components/design-context'
+import { isOperatorAuthError } from '../lib/auth-errors'
 import '../styles.css'
 
 type RouterContext = {
@@ -94,6 +96,14 @@ function RootDocument({
 function RootErrorComponent({ error }: ErrorComponentProps) {
   const { queryClient } = Route.useRouteContext()
   const initialDesignPreferences = Route.useLoaderData()
+
+  if (isOperatorAuthError(error)) {
+    return (
+      <RootDocument initialDesignPreferences={initialDesignPreferences} queryClient={queryClient}>
+        <Navigate replace search={{ auth: 'login' }} to="/" />
+      </RootDocument>
+    )
+  }
 
   return (
     <RootDocument initialDesignPreferences={initialDesignPreferences} queryClient={queryClient}>

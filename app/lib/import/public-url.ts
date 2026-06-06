@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio'
 import type { ImportedContentSource } from '../domain/providers'
+import { sanitizePreviewImageUrl } from './preview-image'
 
 export async function importPublicBlogUrl(url: string): Promise<ImportedContentSource> {
   const parsedUrl = parseHttpUrl(url)
@@ -34,7 +35,9 @@ export function parseBlogHtml(html: string, sourceUrl: string): ImportedContentS
   const description = cleanText(
     meta($, 'og:description') ?? $('meta[name="description"]').attr('content') ?? '',
   )
-  const imageUrl = absolutize(meta($, 'og:image') ?? '', canonicalUrl)
+  const imageUrl = sanitizePreviewImageUrl(
+    absolutize(meta($, 'og:image') ?? '', canonicalUrl),
+  )
   const article = $('article').first()
   const bodyContainer = article.length ? article : $('main').first()
   const bodyText = cleanText((bodyContainer.length ? bodyContainer : $('body')).text())

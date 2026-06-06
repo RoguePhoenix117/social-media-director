@@ -8,8 +8,8 @@ Search this file and the paths below before adding new code. Extend this index w
 |--------|---------|
 | `app-layout.tsx` | Shell, sidebar, nav, logout — accepts optional `projectSwitcher?: ReactNode` slot (rendered in sidebar operator card or top-nav actions) |
 | `project-switcher.tsx` | Dropdown that lists operator projects with `connectedChannelCount` badges; calls `onSwitch(projectId)` |
-| `ai-workspace.tsx` | AI backend setup (onboarding + settings) |
-| `active-ai-backend-control.tsx` | Dashboard backend switcher |
+| `ai-workspace.tsx` | AI backend setup (onboarding + settings): Template mode, OpenAI key, Ollama, OpenAI-compatible, Codex CLI |
+| `active-ai-backend-control.tsx` | Dashboard backend switcher for saved AI connections |
 | `appearance-settings.tsx` | Theme/layout preferences |
 | `password-input.tsx` | Password fields with show/hide |
 | `debounced-field-errors.tsx` | TanStack Form field errors |
@@ -47,7 +47,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | File | Domain |
 |------|--------|
 | `dashboard.ts` | Bootstrap, auth, import, publish (`publishVariant` reads X + LinkedIn tokens from `provider_accounts`; LinkedIn `author_urn` sourced from the channel row) |
-| `ai-workspace.ts` | AI connection test/save |
+| `ai-workspace.ts` | AI connection test/save for Template, OpenAI, Ollama, OpenAI-compatible, Codex CLI |
 | `settings.ts` | Settings page state aggregator (read-only since PR4 removed legacy paste) |
 | `setup.ts` | Instance Setup Mode + Developer settings (`getInstanceSetupStatus`, `saveInstanceSetup`, `getDeveloperSettings`, `saveDeveloperSettings`) |
 | `projects.ts` | Onboarding-aware project lifecycle: `createProjectStep`, `completeChannelsStep`, `completeOnboarding` (PR4) + PR6 mutations `createProject` (settings → projects) and `setActiveProject` (project switcher) — both reuse `buildOnboardingStepResult` so the client cache update path stays unified |
@@ -61,6 +61,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `settings.ts` | Operator AI settings + public status (channel status is project-scoped — pass `projectId`). PR4 removed all legacy social token reads/writes; tokens live in `provider_accounts` only. |
 | `crypto.ts` | Encrypt/decrypt, passwords |
 | `codex-cli.ts` | Codex CLI status/models |
+| `local-ai-models.ts` | Ollama and OpenAI-compatible local model discovery/test helpers |
 | `instance-config.ts` | OAuth app credentials (env overrides DB) + `isInstanceConfigured` / `markInstanceConfigured` |
 | `projects.ts` | `createProject`, `listOperatorProjects` (joins `provider_accounts` for `connectedChannelCount`), `setActiveProject`, `ensureOperatorProjectAccess`, `slugify` |
 | `provider-accounts.ts` | `listProjectChannels`, `getProjectChannel`, `upsertProviderAccount`, `disconnectChannel` |
@@ -69,6 +70,7 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `oauth/state.ts` | OAuth state row CRUD with PKCE verifier + S256 challenge (`createOAuthState`, `consumeOAuthState`, `purgeExpiredOAuthStates`) |
 | `oauth/x.ts` | X (Twitter) OAuth 2.0 PKCE primitives (`buildXAuthorizeUrl`, `exchangeXCode`, `refreshXToken`, `fetchXProfile`, `getXCallbackUrl`, `requireXOAuthConfig`, `X_OAUTH_SCOPES`) |
 | `oauth/linkedin.ts` | LinkedIn OAuth 2.0 primitives (`buildLinkedInAuthorizeUrl`, `exchangeLinkedInCode`, `refreshLinkedInToken`, `fetchLinkedInProfile`, `getLinkedInCallbackUrl`, `requireLinkedInOAuthConfig`, `LINKEDIN_OAUTH_SCOPES`). OIDC `sub` → `urn:li:person:{sub}` for `provider_accounts.author_urn`. No PKCE — LinkedIn token endpoint takes the client secret in the form body. |
+| `publish-service.ts` | `publishToProvider`, `publishMasterPostForSchedule` — server-only publish logic (keep out of `app/server/publish.ts` so client RPC stubs do not bundle `pg`) |
 
 ## Schemas & queries (`app/lib/`)
 
@@ -80,7 +82,11 @@ Thin compositional shells only. Business UI lives in `app/components/` or `app/f
 | `onboarding-steps.ts` | Canonical step IDs/numbers (`ONBOARDING_STEPS`); use instead of magic 1–5 |
 | `channel-catalog.ts` | `CHANNEL_CATALOG` (X + LinkedIn active, 20+ "coming soon" tiles) + `TOTAL_CHANNEL_SLOTS` |
 | `query.ts` | Shared query client helpers |
+| `import/preview-image.ts` | Skip browser-hotlink risky og:image hosts (e.g. GitHub opengraph CDN) |
+| `import/public-url.ts` | Fetch + parse public blog/repo HTML for draft import |
+| `ai/generate-variants.ts` | Social draft generation through Template, OpenAI, Ollama, OpenAI-compatible, and Codex CLI backends; returns generation metadata |
 | `domain/providers.ts` | Provider types |
+| `domain/ai-backends.ts` | AI backend type IDs and labels |
 | `domain/validation.ts` | Post validation per provider |
 | `providers/x.ts`, `providers/linkedin.ts` | Publish adapters |
 
@@ -104,6 +110,7 @@ Prefer `app/components/{feature}/` until a feature needs hooks + multiple pages.
 | `app/features/setup/` | Setup Mode wizard (`setup-wizard.tsx`, `setup-key-gate.tsx`, `provider-credential-fields.tsx`, `setup-callback-url.tsx`, `setup-query.ts`) |
 | `app/features/settings/` | Settings page composition (`settings-page.tsx`, `developers-section.tsx`, `channels-section.tsx`, `projects-section.tsx`, `settings-query.ts`) |
 | `app/features/dashboard/` | Authenticated dashboard composition (`dashboard-screen.tsx`, `dashboard-status-grid.tsx`, `import-workspace.tsx`, `database-setup-screen.tsx`) — extracted from the legacy `app/routes/index.tsx` monolith |
+| `app/features/draft/` | Draft list + Postiz-style composer (`draft-page.tsx`, `draft-workspace.tsx`, `components/draft-composer-layout.tsx`, `draft-channel-picker.tsx`, `draft-editor-panel.tsx`, `draft-preview-column.tsx`, `draft-post-preview.tsx`, `source-link-card.tsx`) |
 
 ## Anti-patterns (do not extend)
 

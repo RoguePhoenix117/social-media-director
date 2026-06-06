@@ -128,16 +128,18 @@ function buildEnvUpdatesFromInput(input: InstanceOAuthConfigInput): OAuthEnvUpda
   if (input.xClientId !== undefined) {
     updates.X_CLIENT_ID = input.xClientId?.trim() ? input.xClientId.trim() : null
   }
-  if (input.xClientSecret !== undefined && input.xClientSecret.trim() !== '') {
-    updates.X_CLIENT_SECRET = input.xClientSecret.trim()
+  if (input.xClientSecret !== undefined) {
+    const xClientSecret = input.xClientSecret?.trim()
+    if (xClientSecret) updates.X_CLIENT_SECRET = xClientSecret
   }
   if (input.linkedinClientId !== undefined) {
     updates.LINKEDIN_CLIENT_ID = input.linkedinClientId?.trim()
       ? input.linkedinClientId.trim()
       : null
   }
-  if (input.linkedinClientSecret !== undefined && input.linkedinClientSecret.trim() !== '') {
-    updates.LINKEDIN_CLIENT_SECRET = input.linkedinClientSecret.trim()
+  if (input.linkedinClientSecret !== undefined) {
+    const linkedinClientSecret = input.linkedinClientSecret?.trim()
+    if (linkedinClientSecret) updates.LINKEDIN_CLIENT_SECRET = linkedinClientSecret
   }
 
   return updates

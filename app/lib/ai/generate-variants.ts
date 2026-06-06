@@ -1,11 +1,14 @@
-import { chat } from '@tanstack/ai'
+import { chat, type ChatMiddleware, type TokenUsage } from '@tanstack/ai'
 import {
   createOpenaiChat,
   OPENAI_CHAT_MODELS,
   type OpenAIChatModel,
 } from '@tanstack/ai-openai'
+import { openaiCompatibleText } from '@tanstack/ai-openai/compatible'
+import { createOllamaChat } from '@tanstack/ai-ollama'
 import { z } from 'zod'
 import { DEFAULT_OPENAI_SOCIAL_MODEL } from './recommended-models'
+import { DEFAULT_OPENAI_COMPATIBLE_API_KEY, DEFAULT_OLLAMA_HOST } from '../server/local-ai-models'
 import type {
   ImportedContentSource,
   MasterPostInput,
@@ -24,8 +27,12 @@ const generatedSocialPostsSchema = z.object({
       z.object({
         provider: z.enum(providers),
         text: z.string().meta({ description: 'The platform-specific social media post.' }),
-        linkUrl: z.string().meta({ description: 'Canonical URL to attach or include. Empty when no URL is available.' }),
-        imageUrl: z.string().nullable().meta({ description: 'Optional image URL. Null when unavailable.' }),
+        linkUrl: z.string().nullable().meta({
+          description: 'Canonical URL to attach or include. Use null when none.',
+        }),
+        imageUrl: z.string().nullable().meta({
+          description: 'Optional image URL. Use null when unavailable.',
+        }),
       }),
     )
     .meta({ description: 'One tailored social post for each requested platform.' }),
@@ -34,14 +41,32 @@ const generatedSocialPostsSchema = z.object({
 export type GeneratedSocialPosts = {
   masterPost: string
   variants: ProviderVariant[]
+  metadata: GenerationMetadata
 }
 
+type GeneratedSocialPostsPayload = Omit<GeneratedSocialPosts, 'metadata'>
+
 type GenerationConfig = {
-  aiProvider?: string
+  aiProvider?: 'template' | 'openaiApiKey' | 'ollama' | 'openaiCompatible' | 'codexCli'
   openaiApiKey?: string
   openaiModel?: string
+  ollamaHost?: string
+  ollamaModel?: string
+  openaiCompatibleProviderName?: string
+  openaiCompatibleBaseUrl?: string
+  openaiCompatibleApiKey?: string
+  openaiCompatibleModel?: string
   codexCliModel?: string
   targetProviders?: Provider[]
+}
+
+export type GenerationMetadata = {
+  mode: 'ai' | 'template'
+  backend: 'template' | 'openaiApiKey' | 'ollama' | 'openaiCompatible' | 'codexCli'
+  model?: string
+  providerName?: string
+  durationMs: number
+  usage?: TokenUsage
 }
 
 export async function generateProviderVariants(
@@ -56,12 +81,9 @@ export async function generateSocialPosts(
   input: MasterPostInput,
   modelConfig?: GenerationConfig,
 ): Promise<GeneratedSocialPosts> {
+  const startedAt = Date.now()
   const targetProviders = normalizeTargetProviders(modelConfig?.targetProviders)
-  const provider = modelConfig?.aiProvider === 'codexCli'
-    ? 'codexCli'
-    : modelConfig?.openaiApiKey || process.env.OPENAI_API_KEY
-      ? 'openaiApiKey'
-      : 'fallback'
+  const provider = resolveGenerationBackend(modelConfig)
   logInfo('ai.generate.start', {
     provider,
     canonicalUrl: input.source.canonicalUrl,
@@ -79,6 +101,75 @@ export async function generateSocialPosts(
       return {
         masterPost: buildFallbackMasterPost(input.source, input.intentPrompt),
         variants,
+        metadata: {
+          mode: 'ai',
+          backend: 'codexCli',
+          model: modelConfig.codexCliModel ?? 'gpt-5.2',
+          durationMs: Date.now() - startedAt,
+        },
+      }
+    } catch (error) {
+      logError('ai.generate.failure', error, { provider })
+      throw error
+    }
+  }
+
+  if (modelConfig?.aiProvider === 'ollama') {
+    const model = modelConfig.ollamaModel
+    if (!model) throw new Error('Choose an Ollama model before generating drafts.')
+    const tracker = createUsageTracker()
+    try {
+      const result = await generateWithOllama(input, {
+        host: modelConfig.ollamaHost ?? DEFAULT_OLLAMA_HOST,
+        model,
+        targetProviders,
+        middleware: [tracker.middleware],
+      })
+      logInfo('ai.generate.success', { provider, variantCount: result.variants.length })
+      return {
+        ...result,
+        metadata: {
+          mode: 'ai',
+          backend: 'ollama',
+          providerName: 'Ollama',
+          model,
+          durationMs: Date.now() - startedAt,
+          usage: tracker.usage,
+        },
+      }
+    } catch (error) {
+      logError('ai.generate.failure', error, { provider })
+      throw error
+    }
+  }
+
+  if (modelConfig?.aiProvider === 'openaiCompatible') {
+    const model = modelConfig.openaiCompatibleModel
+    const baseUrl = modelConfig.openaiCompatibleBaseUrl
+    if (!model || !baseUrl) {
+      throw new Error('Configure an OpenAI-compatible base URL and model before generating drafts.')
+    }
+    const tracker = createUsageTracker()
+    try {
+      const result = await generateWithOpenAiCompatible(input, {
+        baseUrl,
+        apiKey: modelConfig.openaiCompatibleApiKey ?? DEFAULT_OPENAI_COMPATIBLE_API_KEY,
+        model,
+        providerName: modelConfig.openaiCompatibleProviderName ?? 'OpenAI-compatible',
+        targetProviders,
+        middleware: [tracker.middleware],
+      })
+      logInfo('ai.generate.success', { provider, variantCount: result.variants.length })
+      return {
+        ...result,
+        metadata: {
+          mode: 'ai',
+          backend: 'openaiCompatible',
+          providerName: modelConfig.openaiCompatibleProviderName ?? 'OpenAI-compatible',
+          model,
+          durationMs: Date.now() - startedAt,
+          usage: tracker.usage,
+        },
       }
     } catch (error) {
       logError('ai.generate.failure', error, { provider })
@@ -87,15 +178,28 @@ export async function generateSocialPosts(
   }
 
   const apiKey = modelConfig?.openaiApiKey ?? process.env.OPENAI_API_KEY
-  if (apiKey) {
+  if (provider === 'openaiApiKey' && apiKey) {
+    const model = modelConfig?.openaiModel ?? process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_SOCIAL_MODEL
+    const tracker = createUsageTracker()
     try {
       const result = await generateWithOpenAI(input, {
         apiKey,
-        model: modelConfig?.openaiModel ?? process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_SOCIAL_MODEL,
+        model,
         targetProviders,
+        middleware: [tracker.middleware],
       })
       logInfo('ai.generate.success', { provider, variantCount: result.variants.length })
-      return result
+      return {
+        ...result,
+        metadata: {
+          mode: 'ai',
+          backend: 'openaiApiKey',
+          providerName: 'OpenAI',
+          model,
+          durationMs: Date.now() - startedAt,
+          usage: tracker.usage,
+        },
+      }
     } catch (error) {
       logError('ai.generate.failure', error, { provider })
       throw error
@@ -104,14 +208,22 @@ export async function generateSocialPosts(
 
   const result = generateFallbackSocialPosts(input.source, input.intentPrompt, targetProviders)
   logInfo('ai.generate.success', { provider, variantCount: result.variants.length })
-  return result
+  return {
+    ...result,
+    metadata: {
+      mode: 'template',
+      backend: 'template',
+      providerName: 'Template mode',
+      durationMs: Date.now() - startedAt,
+    },
+  }
 }
 
 function generateFallbackSocialPosts(
   source: ImportedContentSource,
   intentPrompt?: string,
   targetProviders: Provider[] = [...providers],
-): GeneratedSocialPosts {
+): GeneratedSocialPostsPayload {
   const hook = intentPrompt?.trim() || source.description || source.excerpt || source.title
   const shortHook = trimToLength(hook, 180)
   const longHook = trimToLength(hook, 900)
@@ -143,7 +255,12 @@ function generateFallbackSocialPosts(
 
 async function generateWithOpenAI(
   input: MasterPostInput,
-  config: { apiKey: string; model: string; targetProviders: Provider[] },
+  config: {
+    apiKey: string
+    model: string
+    targetProviders: Provider[]
+    middleware?: ChatMiddleware[]
+  },
 ): Promise<GeneratedSocialPosts> {
   const model = resolveOpenAIModel(config.model)
   logInfo('ai.openai.request.start', {
@@ -152,31 +269,8 @@ async function generateWithOpenAI(
   })
   const result = await chat({
     adapter: createOpenaiChat(model, config.apiKey),
-    temperature: 0.7,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            content: JSON.stringify({
-              instructions: [
-                'You are generating reviewed social media drafts for a social media director app.',
-                'Create a master post plus exactly one platform-specific post for each requested provider.',
-                'The master post should be a strong reusable baseline, not a copy of the shortest platform variant.',
-                'Each platform post must use that platform well rather than merely truncating the master post.',
-                'X posts must be concise, punchy, scannable, and no more than 280 characters including the URL if used.',
-                'LinkedIn posts should use the larger character budget with a clearer narrative, useful context, and a professional call to action.',
-                'Include the canonical URL in linkUrl. Include it in text only when the platform post benefits from a visible URL.',
-                'Do not invent unsupported provider names.',
-              ],
-              requestedProviders: config.targetProviders,
-              input,
-            }),
-          },
-        ],
-      },
-    ],
+    middleware: config.middleware,
+    messages: buildGenerationMessages(input, config.targetProviders),
     outputSchema: generatedSocialPostsSchema,
   })
 
@@ -187,6 +281,75 @@ async function generateWithOpenAI(
   return {
     masterPost: result.masterPost,
     variants: normalizeGeneratedVariants(result.variants, input, config.targetProviders),
+    metadata: {
+      mode: 'ai',
+      backend: 'openaiApiKey',
+      model,
+      durationMs: 0,
+    },
+  }
+}
+
+async function generateWithOllama(
+  input: MasterPostInput,
+  config: {
+    host: string
+    model: string
+    targetProviders: Provider[]
+    middleware?: ChatMiddleware[]
+  },
+): Promise<GeneratedSocialPosts> {
+  const result = await chat({
+    adapter: createOllamaChat(config.model, config.host),
+    middleware: config.middleware,
+    messages: buildGenerationMessages(input, config.targetProviders),
+    outputSchema: generatedSocialPostsSchema,
+  })
+
+  return {
+    masterPost: result.masterPost,
+    variants: normalizeGeneratedVariants(result.variants, input, config.targetProviders),
+    metadata: {
+      mode: 'ai',
+      backend: 'ollama',
+      model: config.model,
+      durationMs: 0,
+    },
+  }
+}
+
+async function generateWithOpenAiCompatible(
+  input: MasterPostInput,
+  config: {
+    baseUrl: string
+    apiKey: string
+    model: string
+    providerName: string
+    targetProviders: Provider[]
+    middleware?: ChatMiddleware[]
+  },
+): Promise<GeneratedSocialPosts> {
+  const result = await chat({
+    adapter: openaiCompatibleText(config.model, {
+      name: config.providerName,
+      baseURL: config.baseUrl,
+      apiKey: config.apiKey,
+    }),
+    middleware: config.middleware,
+    messages: buildGenerationMessages(input, config.targetProviders),
+    outputSchema: generatedSocialPostsSchema,
+  })
+
+  return {
+    masterPost: result.masterPost,
+    variants: normalizeGeneratedVariants(result.variants, input, config.targetProviders),
+    metadata: {
+      mode: 'ai',
+      backend: 'openaiCompatible',
+      providerName: config.providerName,
+      model: config.model,
+      durationMs: 0,
+    },
   }
 }
 
@@ -321,6 +484,63 @@ function parseCodexJson(raw: string) {
     throw new Error('Codex CLI did not return JSON.')
   }
   return JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1)) as { variants?: ProviderVariant[] }
+}
+
+function buildGenerationMessages(input: MasterPostInput, targetProviders: Provider[]) {
+  return [
+    {
+      role: 'user' as const,
+      content: JSON.stringify({
+        instructions: [
+          'You are generating reviewed social media drafts for a social media director app.',
+          'Create a master post plus exactly one platform-specific post for each requested provider.',
+          'The master post should be a strong reusable baseline, not a copy of the shortest platform variant.',
+          'Each platform post must use that platform well rather than merely truncating the master post.',
+          'X posts must be concise, punchy, scannable, and no more than 280 characters including the URL if used.',
+          'LinkedIn posts should use the larger character budget with a clearer narrative, useful context, and a professional call to action.',
+          'Always set linkUrl to the canonical URL string when one exists. Use null only when no canonical URL exists.',
+          'Include the URL in text only when the platform post benefits from a visible URL.',
+          'Use null for imageUrl when no image is available.',
+          'Do not invent unsupported provider names.',
+        ],
+        requestedProviders: targetProviders,
+        input,
+      }),
+    },
+  ]
+}
+
+function createUsageTracker() {
+  let usage: TokenUsage | undefined
+  const middleware: ChatMiddleware = {
+    name: 'social-media-director-usage',
+    onUsage: (_context, nextUsage) => {
+      usage = mergeUsage(usage, nextUsage)
+    },
+  }
+
+  return {
+    middleware,
+    get usage() {
+      return usage
+    },
+  }
+}
+
+function mergeUsage(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
+  if (!current) return next
+  return {
+    ...next,
+    promptTokens: (current.promptTokens ?? 0) + (next.promptTokens ?? 0),
+    completionTokens: (current.completionTokens ?? 0) + (next.completionTokens ?? 0),
+    totalTokens: (current.totalTokens ?? 0) + (next.totalTokens ?? 0),
+  }
+}
+
+function resolveGenerationBackend(modelConfig?: GenerationConfig): GenerationMetadata['backend'] {
+  if (modelConfig?.aiProvider) return modelConfig.aiProvider
+  if (modelConfig?.openaiApiKey || process.env.OPENAI_API_KEY) return 'openaiApiKey'
+  return 'template'
 }
 
 function trimToLength(value: string, maxLength: number) {

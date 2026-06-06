@@ -61,15 +61,20 @@ Use this after a fresh migration (`0007_projects_oauth.sql` applied). Requires r
 
 ---
 
-## Phase 5 — Import, draft, publish
+## Phase 5 — Draft, Post calendar, publish
 
 | # | Step | Expected | Pass |
 |---|------|----------|------|
-| 5.1 | Configure AI backend (Settings or dashboard) if not done | Model step green / active backend selected | ☐ |
-| 5.2 | Paste a public blog URL → Import and generate | Source preview + X/LinkedIn draft variants appear | ☐ |
-| 5.3 | Publish X variant | Success message with post URL (real tweet) | ☐ |
-| 5.4 | Publish LinkedIn variant | Success message with LinkedIn post URL | ☐ |
-| 5.5 | Publish without connected channel | Clear error pointing to Connect Channels | ☐ |
+| 5.1 | Configure AI backend (Settings or Draft page) if not done | Model configured / active backend selected | ☐ |
+| 5.2 | Open **Draft** → New draft → Import and generate | Draft saved; appears in list; workspace shows variants | ☐ |
+| 5.3 | Edit variant text → Save edits | Changes persist after reload | ☐ |
+| 5.4 | Mark ready (all connected variants valid) | Status `ready`; link to Post calendar | ☐ |
+| 5.5 | Open **Post** → Publish now on ready draft | Success; `publish_attempts` row; draft status `published` | ☐ |
+| 5.6 | Schedule another ready draft (datetime) | Appears on calendar and scheduled list | ☐ |
+| 5.7 | Wait for scheduled time (or advance clock) | Poller publishes; scheduled status `published` | ☐ |
+| 5.8 | Dashboard overview | Real draft counts, recent publishes, upcoming scheduled | ☐ |
+| 5.9 | **Monitor** filters | Publish/schedule activity listed | ☐ |
+| 5.10 | **Stats** | Internal counts reflect your project | ☐ |
 
 ---
 

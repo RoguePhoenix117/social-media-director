@@ -2,6 +2,14 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { aiBackendTypes } from '../lib/domain/ai-backends'
 import { listCodexCliModels, getCodexCliStatus } from '../lib/server/codex-cli'
+import {
+  DEFAULT_OLLAMA_HOST,
+  DEFAULT_OPENAI_COMPATIBLE_API_KEY,
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  listOllamaModels,
+  listOpenAiCompatibleModels,
+  normalizeBaseUrl,
+} from '../lib/server/local-ai-models'
 import { listOpenAiModels } from '../lib/server/openai-models'
 import {
   getOperatorAiSettings,
@@ -17,6 +25,18 @@ const openAiTestInputSchema = z.object({
 
 const codexTestInputSchema = z.object({})
 
+const ollamaTestInputSchema = z.object({
+  ollamaHost: z.string().optional(),
+})
+
+const openAiCompatibleTestInputSchema = z.object({
+  providerName: z.string().optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+})
+
+const saveTemplateInputSchema = z.object({})
+
 const saveOpenAiInputSchema = z.object({
   openaiApiKey: z.string().optional(),
   openaiModel: z.string().min(1, 'Choose a model.'),
@@ -24,6 +44,18 @@ const saveOpenAiInputSchema = z.object({
 
 const saveCodexInputSchema = z.object({
   codexCliModel: z.string().min(1, 'Choose a Codex CLI model.'),
+})
+
+const saveOllamaInputSchema = z.object({
+  ollamaHost: z.string().min(1, 'Enter an Ollama host.'),
+  ollamaModel: z.string().min(1, 'Choose an Ollama model.'),
+})
+
+const saveOpenAiCompatibleInputSchema = z.object({
+  providerName: z.string().optional(),
+  baseUrl: z.string().min(1, 'Enter a base URL.'),
+  apiKey: z.string().optional(),
+  model: z.string().min(1, 'Choose a model.'),
 })
 
 const setActiveAiBackendInputSchema = z.object({
@@ -55,6 +87,48 @@ export const testCodexConnection = createServerFn({ method: 'POST' })
     return { models, status }
   })
 
+export const testOllamaConnection = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => ollamaTestInputSchema.parse(input))
+  .handler(async ({ data }) => {
+    await requireOperatorSession()
+    const host = normalizeBaseUrl(data.ollamaHost?.trim() || DEFAULT_OLLAMA_HOST)
+    const models = await listOllamaModels(host)
+    return { host, models }
+  })
+
+export const testOpenAiCompatibleConnection = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => openAiCompatibleTestInputSchema.parse(input))
+  .handler(async ({ data }) => {
+    const session = await requireOperatorSession()
+    const stored = await getOperatorAiSettings(session.operatorId)
+    const baseUrl = normalizeBaseUrl(
+      data.baseUrl?.trim() ||
+        stored.openaiCompatibleBaseUrl ||
+        DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    )
+    const apiKey =
+      data.apiKey?.trim() ||
+      stored.openaiCompatibleApiKey ||
+      DEFAULT_OPENAI_COMPATIBLE_API_KEY
+    const models = await listOpenAiCompatibleModels({ baseUrl, apiKey })
+    return {
+      providerName: data.providerName?.trim() || stored.openaiCompatibleProviderName || 'Local',
+      baseUrl,
+      models,
+    }
+  })
+
+export const saveTemplateConnection = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => saveTemplateInputSchema.parse(input))
+  .handler(async () => {
+    const session = await requireOperatorSession()
+    await saveOperatorAiConnection(session.operatorId, 'template', {
+      markVerified: true,
+      setActiveIfUnset: true,
+    })
+    return getPublicSettingsStatus()
+  })
+
 export const saveOpenAiConnection = createServerFn({ method: 'POST' })
   .inputValidator((input: unknown) => saveOpenAiInputSchema.parse(input))
   .handler(async ({ data }) => {
@@ -79,6 +153,38 @@ export const saveCodexConnection = createServerFn({ method: 'POST' })
     const session = await requireOperatorSession()
     await saveOperatorAiConnection(session.operatorId, 'codexCli', {
       codexCliModel: data.codexCliModel,
+      markVerified: true,
+      setActiveIfUnset: true,
+    })
+    return getPublicSettingsStatus()
+  })
+
+export const saveOllamaConnection = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => saveOllamaInputSchema.parse(input))
+  .handler(async ({ data }) => {
+    const session = await requireOperatorSession()
+    const host = normalizeBaseUrl(data.ollamaHost)
+    await saveOperatorAiConnection(session.operatorId, 'ollama', {
+      ollamaHost: host,
+      ollamaModel: data.ollamaModel,
+      markVerified: true,
+      setActiveIfUnset: true,
+    })
+    return getPublicSettingsStatus()
+  })
+
+export const saveOpenAiCompatibleConnection = createServerFn({ method: 'POST' })
+  .inputValidator((input: unknown) => saveOpenAiCompatibleInputSchema.parse(input))
+  .handler(async ({ data }) => {
+    const session = await requireOperatorSession()
+    const stored = await getOperatorAiSettings(session.operatorId)
+    const baseUrl = normalizeBaseUrl(data.baseUrl)
+    await saveOperatorAiConnection(session.operatorId, 'openaiCompatible', {
+      openaiCompatibleProviderName: data.providerName?.trim() || 'Local',
+      openaiCompatibleBaseUrl: baseUrl,
+      openaiCompatibleApiKey:
+        data.apiKey?.trim() || stored.openaiCompatibleApiKey || DEFAULT_OPENAI_COMPATIBLE_API_KEY,
+      openaiCompatibleModel: data.model,
       markVerified: true,
       setActiveIfUnset: true,
     })
